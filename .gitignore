@@ -1,0 +1,37 @@
+.idea/
+.DS_Store
+Thumbs.db
+gsasrec_env/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.vscode
+
+# Rust
+target/
+**/*.rs.bk
+
+# Datasets
+ml-1m/
+ml-1m-csv/
+ml-latest-small/
+All_Beauty.jsonl/
+meta_All_Beauty.jsonl/
+
+# Extensions of datasets
+*.jsonl
+*.dat
+*.csv
+
+# Generated models
+models
+*.onnx
+*.onnx.data
+*.data
+
+# Useless stuff
+Single_inference_web.png
+Single_inference_web_1m.png
+test.png
