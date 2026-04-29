@@ -14,11 +14,7 @@ target/
 **/*.rs.bk
 
 # Datasets
-ml-1m/
-ml-1m-csv/
-ml-latest-small/
-All_Beauty.jsonl/
-meta_All_Beauty.jsonl/
+datasets/
 
 # Extensions of datasets
 *.jsonl
