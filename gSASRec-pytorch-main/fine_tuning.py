@@ -29,7 +29,7 @@ def objective(trial):
     embedding_dim = trial.suggest_categorical('embedding_dim', [128, 256])
     num_heads = trial.suggest_categorical('num_heads', [2, 4])
     dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
-    train_batch_size = trial.suggest_categorical('train_batch_size', [128, 256])
+    train_batch_size = trial.suggest_categorical('train_batch_size', [64, 128])
     sequence_length = trial.suggest_categorical('sequence_length', [50, 100, 200])
 
     # fill the template with the values
