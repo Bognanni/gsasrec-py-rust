@@ -54,5 +54,3 @@ def export_model(saved_model_path = "gsasrec-ml1m-step_4465-t_0.75-negs_256-emb_
     )
 
     print("Model exported with success.")
-
-export_model()

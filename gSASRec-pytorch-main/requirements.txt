@@ -5,3 +5,5 @@ datasets
 ir_measures
 tqdm
 torchinfo
+onnxscript
+optuna

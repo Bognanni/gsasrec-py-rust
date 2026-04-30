@@ -6,7 +6,6 @@ from dataset_utils import get_train_dataloader, get_num_items, get_val_dataloade
 from tqdm import tqdm
 from eval_utils import evaluate
 from torchinfo import summary
-from export_onnx import export_model
 
 models_dir = "models"
 if not os.path.exists(models_dir):
@@ -114,13 +113,13 @@ for epoch in range(config.max_epochs):
     print(f"Epoch {epoch} evaluation result: {evaluation_result}")
     if evaluation_result[config.val_metric] > best_metric:
         best_metric = evaluation_result[config.val_metric]
-        model_name = f"models/gsasrec-{config.dataset_name}-step:{step}-t:{config.gbce_t}-negs:{config.negs_per_pos}-emb:{config.embedding_dim}-dropout:{config.dropout_rate}-metric:{best_metric}.pt".replace(':', '_')
-        print(f"Saving new best model to {model_name}")
-        if best_model_name is not None:
-            os.remove(best_model_name)
+        model_name = (f"models/gsasrec-{config.dataset_name}-step:{step}-t:{config.gbce_t}-negs:{config.negs_per_pos}"
+                      f"-emb:{config.embedding_dim}-dropout:{config.dropout_rate}"
+                      f"-metric:{best_metric}.pt").replace(':', '_')
+
         best_model_name = model_name
         steps_not_improved = 0
-        torch.save(model.state_dict(), model_name)
+        print(f"Best current score: {best_metric}")
     else:
         steps_not_improved += 1
         print(f"Validation metric did not improve for {steps_not_improved} steps")
@@ -128,5 +127,7 @@ for epoch in range(config.max_epochs):
             print(f"Stopping training, best model was saved to {best_model_name}")
             break
 
-# export the model using ONNX
-export_model(best_model_name)
+# best score printed for fine tuning
+print(f"\nFINAL_SCORE_FOR_OPTUNA: {best_metric}")
+# save the best model
+torch.save(model.state_dict(), model_name)
