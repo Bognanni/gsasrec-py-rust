@@ -43,7 +43,7 @@ def objective(trial):
         gbce_t=gbce_t
     )
 
-    # 4. Creiamo un file univoco per ogni tentativo (così puoi ispezionarli)
+    # create a single file modified for each trial
     name_file_config = "config_optuna.py"
 
     with open(name_file_config, "w") as file:

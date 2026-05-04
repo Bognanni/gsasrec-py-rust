@@ -10,3 +10,6 @@ tqdm
 torchinfo
 onnxscript
 optuna
+fastapi
+pydantic
+uvicorn

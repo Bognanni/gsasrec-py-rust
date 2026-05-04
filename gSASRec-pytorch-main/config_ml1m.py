@@ -2,8 +2,8 @@ from config import GSASRecExperimentConfig
 
 config = GSASRecExperimentConfig(
     dataset_name='ml1m',
-    train_batch_size=64, # half the default cause out of memory
-    sequence_length=50, # from 200 to 50 for the same reason
+    train_batch_size=128,
+    sequence_length=200,
     embedding_dim=128,
     num_heads=1,
     max_batches_per_epoch=100,
