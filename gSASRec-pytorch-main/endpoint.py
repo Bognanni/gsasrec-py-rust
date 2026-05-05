@@ -13,8 +13,8 @@ PADDING_VALUE = 0
 
 # default server config
 SERVER_CONFIG = {
-    "config_path": "config_optuna.py",
-    "checkpoint_path": "models/gsasrec-ml1m-step_9310-t_0.5-negs_256-emb_256-dropout_0.16519583830077267-metric_0.1349321142424068.pt"
+    "config_path": "config_ml1m.py",
+    "checkpoint_path": "models/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt"
 }
 
 
@@ -79,6 +79,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# health check functions
+# if it is called the root
+@app.api_route("/", methods=["GET", "POST", "OPTIONS"])
+async def health_check_root():
+    return {"status": "ok", "message": "GSASRec server online!"}
+
+# if it is called the model but using get and not post
+@app.api_route("/get_embeddings", methods=["GET", "OPTIONS"])
+async def health_check_endpoint():
+    return {"status": "ok"}
 
 @app.post("/get_embeddings", response_model=EmbeddingsResponse)
 async def get_embeddings(request: EmbeddingsRequest):

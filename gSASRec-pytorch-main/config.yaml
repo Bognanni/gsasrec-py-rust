@@ -1,0 +1,29 @@
+# =============================================================================
+# Local HTTP transport configuration for GSASRec
+# The model server is running on localhost:8081.
+# =============================================================================
+
+endpoint:
+  # base URL
+  url: "http://localhost:8081"
+  client:
+    connect_timeout: 3
+    read_timeout: 60
+
+headers: {}
+
+request:
+  # @app.post route
+  path: "/get_embeddings"
+
+  sequence_length: 40
+  # ids_csv: "./item_ids.csv"    # optional — one ID per row, header skipped
+
+load_test:
+  target_rps: [10, 50]
+  duration_seconds: 60
+  num_clients: 32
+  num_warmup_requests: 30
+  cooldown_seconds: 5
+  log_every: 1.0
+  skip_first_n_requests: 0
