@@ -13,3 +13,4 @@ optuna
 fastapi
 pydantic
 uvicorn
+onnxruntime

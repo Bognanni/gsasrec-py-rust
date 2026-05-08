@@ -1,5 +1,7 @@
 import os
 import torch
+import numpy as np
+import onnxruntime as ort
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
@@ -14,8 +16,9 @@ PADDING_VALUE = 0
 # default server config
 SERVER_CONFIG = {
     "config_path": "config_ml1m.py",
-    "checkpoint_path": "models/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt"
-}
+    "checkpoint_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt",
+    "onnx_model_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx"
+    }
 
 
 # template for input data: a list of lists of integers
@@ -48,7 +51,13 @@ async def lifespan(app: FastAPI):
         print(f"CRITICAL ERROR: Cannot find the checkpoint file at: '{SERVER_CONFIG['checkpoint_path']}'")
         print("Please check your spelling or provide the correct --checkpoint path.")
         yield
-        return  # Stop loading
+        return
+
+    if not os.path.exists(SERVER_CONFIG["onnx_model_path"]):
+        print(f"CRITICAL ERROR: Cannot find the .onnx file at: '{SERVER_CONFIG['onnx_model_path']}'")
+        print("Please check your spelling or provide the correct --onnx path.")
+        yield
+        return
 
     try:
         # paths from global dict
@@ -62,12 +71,16 @@ async def lifespan(app: FastAPI):
         model.load_state_dict(torch.load(SERVER_CONFIG["checkpoint_path"], map_location=device))
         model.eval()
 
-        server_memory["model"] = model
+        server_memory["pytorch_model"] = model
         server_memory["device"] = device
-        print("GSASRec model successfully loaded and ready to respond!")
+        print("GSASRec pytorch model successfully loaded and ready to answer!")
+
+        onnx_session = ort.InferenceSession(SERVER_CONFIG["onnx_model_path"])
+        server_memory["onnx_model"] = onnx_session
+        print("GSASRec ONNX model successfully loaded and ready to answer!")
 
     except Exception as e:
-        print(f"Critical error during model loading: {e}")
+        print(f"Critical error during models' loading: {e}")
 
     # the server starts listening thanks to yield
     yield
@@ -90,16 +103,16 @@ async def health_check_root():
 async def health_check_endpoint():
     return {"status": "ok"}
 
-@app.post("/get_embeddings", response_model=EmbeddingsResponse)
-async def get_embeddings(request: EmbeddingsRequest):
+@app.post("/get_embeddings/checkpoint", response_model=EmbeddingsResponse)
+async def get_embeddings_checkpoint(request: EmbeddingsRequest):
     # security check: verify that the model was correctly loaded at startup
-    if "model" not in server_memory:
+    if "pytorch_model" not in server_memory:
         raise HTTPException(
             status_code=500,
-            detail="The model was not loaded correctly. Please check your terminal for errors about missing files!"
+            detail="The pytorch model was not loaded correctly. Please check your terminal for errors about missing files!"
         )
 
-    model = server_memory["model"]
+    model = server_memory["pytorch_model"]
     device = server_memory["device"]
 
     try:
@@ -118,8 +131,7 @@ async def get_embeddings(request: EmbeddingsRequest):
             padded_sequence = ([PADDING_VALUE] * padding_length) + sequence
             padded_batch.append(padded_sequence)
 
-        input_tensor = torch.tensor(padded_batch, dtype=torch.long)
-        input_tensor = input_tensor.to(device)
+        input_tensor = torch.tensor(padded_batch, dtype=torch.long).to(device)
 
         with torch.no_grad():
             seq_emb, attentions = model(input_tensor)
@@ -130,6 +142,36 @@ async def get_embeddings(request: EmbeddingsRequest):
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error processing the tensor: {str(e)}")
+
+@app.post("/get_embeddings/onnx", response_model=EmbeddingsResponse)
+async def get_embeddings_onnx(request: EmbeddingsRequest):
+    if "onnx_model" not in server_memory:
+        raise HTTPException(
+            status_code=500,
+            detail="The ONNX model was not loaded correctly. Please check your terminal for errors about missing files!"
+        )
+
+    session = server_memory["onnx_model"]
+
+    try:
+        padded_batch = []
+        for sequence in request.batch_sequences:
+            if len(sequence) > MAX_LENGTH:
+                sequence = sequence[-MAX_LENGTH:]
+            padding_length = MAX_LENGTH - len(sequence)
+            padded_batch.append(([PADDING_VALUE] * padding_length) + sequence)
+
+        # numpy array for onnx
+        input_array = np.array(padded_batch, dtype=np.int64)
+
+        # run the ONNX model
+        outputs = session.run(["embedded"], {"input_seq": input_array})
+        final_embeddings_list = outputs[0].tolist()
+
+        return EmbeddingsResponse(embeddings=final_embeddings_list)
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error ONNX: {str(e)}")
 
 #########################################
 # to try it, use
@@ -144,14 +186,17 @@ async def get_embeddings(request: EmbeddingsRequest):
 if __name__ == "__main__":
     # parse the arguments
     parser = ArgumentParser()
-    parser.add_argument('--config', type=str, default='config_optuna.py')
+    parser.add_argument('--config', type=str, default='config_ml1m.py')
     parser.add_argument('--checkpoint', type=str,
-                        default="models/gsasrec-ml1m-step_9310-t_0.5-negs_256-emb_256-dropout_0.16519583830077267-metric_0.1349321142424068.pt")
+                        default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt")
+    parser.add_argument("--onnx", type=str,
+                        default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx")
 
     args = parser.parse_args()
 
     # save the arguments globally so the async function can read them
     SERVER_CONFIG["config_path"] = args.config
     SERVER_CONFIG["checkpoint_path"] = args.checkpoint
+    SERVER_CONFIG["onnx_model_path"] = args.onnx
 
     uvicorn.run(app, host="0.0.0.0", port=8081)
