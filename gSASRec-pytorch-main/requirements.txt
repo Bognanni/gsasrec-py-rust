@@ -13,4 +13,4 @@ optuna
 fastapi
 pydantic
 uvicorn
-onnxruntime
+onnxruntime-gpu

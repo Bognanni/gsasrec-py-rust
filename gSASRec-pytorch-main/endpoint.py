@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from argparse import ArgumentParser
 import uvicorn
+import rust_engine
 
 from utils import build_model, get_device, load_config
 
@@ -80,6 +81,12 @@ async def lifespan(app: FastAPI):
         onnx_session = ort.InferenceSession(SERVER_CONFIG["onnx_model_path"], providers=onnx_providers)
         server_memory["onnx_model"] = onnx_session
         print("GSASRec ONNX model successfully loaded and ready to answer!")
+
+        # add also the onnx model imported in rust
+        if 'rust_engine' in globals():
+            rust_session = rust_engine.Recommender(SERVER_CONFIG["onnx_model_path"])
+            server_memory["rust_model"] = rust_session
+            print("GSASRec RUST ONNX model successfully loaded and ready to answer!")
 
     except Exception as e:
         print(f"Critical error during models' loading: {e}")
@@ -175,8 +182,38 @@ async def get_embeddings_onnx(request: EmbeddingsRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error ONNX: {str(e)}")
 
+
+@app.post("/get_embeddings/onnx_rust", response_model=EmbeddingsResponse)
+async def get_embeddings_onnx_rust(request: EmbeddingsRequest):
+    if "rust_model" not in server_memory:
+        raise HTTPException(
+            status_code=500,
+            detail="The Rust ONNX model was not loaded correctly. Ensure rust_engine is compiled and imported."
+        )
+
+    rust_model = server_memory["rust_model"]
+
+    try:
+        batch_results = []
+
+        for sequence in request.batch_sequences:
+            # get the embeddings from the onnx model in rust
+            flat_embeddings = rust_model.get_embeddings(sequence)
+
+            # reshape because it returns a flat array
+            arr = np.array(flat_embeddings, dtype=np.float32)
+            reshaped_sequence = arr.reshape(MAX_LENGTH, -1).tolist()
+
+            # add the list to the results
+            batch_results.append(reshaped_sequence)
+
+        return EmbeddingsResponse(embeddings=batch_results)
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error Rust ONNX model: {str(e)}")
+
 #########################################
-# to try it, use
+# to try it, use searching http://localhost:8081/docs on the browser
 # {
 #   "batch_sequences": [
 #     [15, 22, 108],
