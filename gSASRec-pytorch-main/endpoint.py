@@ -75,7 +75,9 @@ async def lifespan(app: FastAPI):
         server_memory["device"] = device
         print("GSASRec pytorch model successfully loaded and ready to answer!")
 
-        onnx_session = ort.InferenceSession(SERVER_CONFIG["onnx_model_path"])
+        # to put also the onnx model on the gpu
+        onnx_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        onnx_session = ort.InferenceSession(SERVER_CONFIG["onnx_model_path"], providers=onnx_providers)
         server_memory["onnx_model"] = onnx_session
         print("GSASRec ONNX model successfully loaded and ready to answer!")
 
