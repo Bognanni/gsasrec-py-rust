@@ -13,7 +13,7 @@ name = "gsasrec-rust"
 path = "src/main.rs"
 
 [dependencies]
-ort = { version = "2.0.0-rc.11", features = ["ndarray"] }
+ort = { version = "2.0.0-rc.12", features = ["ndarray"], default-features = false }
 ndarray = "0.15"
 candle-core = { version = "0.8.2", features = ["cuda"] }
 candle-nn = { version = "0.8.2", features = ["cuda"] }
