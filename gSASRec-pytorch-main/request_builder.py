@@ -86,8 +86,9 @@ def get_headers(config: dict) -> dict:
 @asynccontextmanager
 async def make_client(config: dict, num_clients: int):
     c = config['endpoint'].get('client', {})
+    url = config['endpoint']['url'] + config['request']['path']
     async with make_http_client(
-        url=config['endpoint']['url'],
+        url=url,
         get_headers_fn=lambda: get_headers(config),
         num_clients=num_clients,
         connect_timeout=c.get('connect_timeout', 3),

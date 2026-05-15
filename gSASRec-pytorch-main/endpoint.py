@@ -2,7 +2,7 @@ import os
 import torch
 import numpy as np
 import onnxruntime as ort
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from argparse import ArgumentParser
@@ -10,6 +10,7 @@ import uvicorn
 import rust_engine
 
 from utils import build_model, get_device, load_config
+from latency_test import track_model_latency, get_percentiles
 
 MAX_LENGTH = 200
 PADDING_VALUE = 0
@@ -101,6 +102,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# middleware to eventually test the path
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    print(f"\n[MIDDLEWARE] Request arrived: {request.method} {request.url.path}")
+    response = await call_next(request)
+    print(f"[MIDDLEWARE] Response sent: Status {response.status_code}")
+    return response
+
 # health check functions
 # if it is called the root
 @app.api_route("/", methods=["GET", "POST", "OPTIONS"])
@@ -143,7 +152,8 @@ async def get_embeddings_checkpoint(request: EmbeddingsRequest):
         input_tensor = torch.tensor(padded_batch, dtype=torch.long).to(device)
 
         with torch.no_grad():
-            seq_emb, attentions = model(input_tensor)
+            with track_model_latency("pytorch"):
+                seq_emb, _ = model(input_tensor)
             final_embeddings_list = seq_emb.tolist()
 
         # return the formatted result
@@ -174,7 +184,8 @@ async def get_embeddings_onnx(request: EmbeddingsRequest):
         input_array = np.array(padded_batch, dtype=np.int64)
 
         # run the ONNX model
-        outputs = session.run(["embedded"], {"input_seq": input_array})
+        with track_model_latency("onnx"):
+            outputs = session.run(["embedded"], {"input_seq": input_array})
         final_embeddings_list = outputs[0].tolist()
 
         return EmbeddingsResponse(embeddings=final_embeddings_list)
@@ -211,6 +222,13 @@ async def get_embeddings_onnx_rust(request: EmbeddingsRequest):
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error Rust ONNX model: {str(e)}")
+
+
+@app.get("/metrics/model-latency")
+def model_latency_metrics():
+    """Returns the percentiles"""
+    return get_percentiles()
+
 
 #########################################
 # to try it, use searching http://localhost:8081/docs on the browser
