@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from argparse import ArgumentParser
 import uvicorn
-import rust_engine
+import gsasrec_rust
 
 from utils import build_model, get_device, load_config
 from latency_test import track_model_latency, get_percentiles
@@ -84,10 +84,10 @@ async def lifespan(app: FastAPI):
         print("GSASRec ONNX model successfully loaded and ready to answer!")
 
         # add also the onnx model imported in rust
-        if 'rust_engine' in globals():
-            rust_session = rust_engine.Recommender(SERVER_CONFIG["onnx_model_path"])
-            server_memory["rust_model"] = rust_session
-            print("GSASRec RUST ONNX model successfully loaded and ready to answer!")
+
+        rust_session = gsasrec_rust.Recommender(SERVER_CONFIG["onnx_model_path"])
+        server_memory["rust_model"] = rust_session
+        print("GSASRec RUST ONNX model successfully loaded and ready to answer!")
 
     except Exception as e:
         print(f"Critical error during models' loading: {e}")

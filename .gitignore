@@ -12,6 +12,7 @@ __pycache__/
 # Rust
 target/
 **/*.rs.bk
+.cargo/
 
 # Datasets
 datasets/
