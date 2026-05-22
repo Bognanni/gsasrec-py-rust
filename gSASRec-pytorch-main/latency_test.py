@@ -3,7 +3,6 @@ import numpy as np
 import os
 from contextlib import contextmanager
 
-
 WARMUP_REQS = 30
 
 
@@ -11,15 +10,18 @@ WARMUP_REQS = 30
 def track_model_latency():
     """Measure time and save the latencies in latencies.csv"""
     start_time = time.perf_counter()
+    success = False
     try:
         yield
+        success = True
     finally:
-        end_time = time.perf_counter()
-        latency_ms = (end_time - start_time) * 1000
+        if success:
+            end_time = time.perf_counter()
+            latency_ms = (end_time - start_time) * 1000
 
-        # all the workers write in the shared file
-        with open("latencies.csv", "a") as f:
-            f.write(f"{latency_ms}\n")
+            # all the workers write in the shared file
+            with open("latencies.csv", "a") as f:
+                f.write(f"{latency_ms}\n")
 
 
 def get_percentiles():
@@ -32,10 +34,12 @@ def get_percentiles():
 
     with open("latencies.csv", "r") as f:
         for line in f:
+            line = line.strip()
+            if not line:
+                continue
+
             try:
-                name, val = line.strip().split(",")
-                if name in latencies:
-                    latencies.append(float(val))
+                latencies.append(float(line))
             except ValueError:
                 continue
 
@@ -52,13 +56,13 @@ def get_percentiles():
             "error": f"Insufficient data. {total_recorded} requests registered, needed > {WARMUP_REQS}."
         }
     else:
-        arr =np.array(valid_latencies)
+        arr = np.array(valid_latencies)
         results = {
             'mean_ms': float(np.mean(arr)),
-            'p50_ms':  float(np.percentile(arr, 50)),
-            'p90_ms':  float(np.percentile(arr, 90)),
-            'p95_ms':  float(np.percentile(arr, 95)),
-            'p99_ms':  float(np.percentile(arr, 99)),
+            'p50_ms': float(np.percentile(arr, 50)),
+            'p90_ms': float(np.percentile(arr, 90)),
+            'p95_ms': float(np.percentile(arr, 95)),
+            'p99_ms': float(np.percentile(arr, 99)),
             "total_requests_recorded": total_recorded,
             "warmup_skipped": WARMUP_REQS,
             "valid_requests_measured": len(valid_latencies)
