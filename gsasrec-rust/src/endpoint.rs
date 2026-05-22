@@ -37,14 +37,22 @@ impl Recommender {
         Ok(Recommender { session })
     }
 
-    pub fn get_embeddings(&mut self, user_history: Vec<i64>) -> PyResult<Vec<f32>> {
+    pub fn get_embeddings(&mut self, batch_history: Vec<Vec<i64>>) -> PyResult<Vec<f32>> {
         let max_length = 200;
         let padding_value = 0;
 
-        let padded_history = prepare_sequence(&user_history, max_length, padding_value);
-        let input_shape = vec![1, max_length];
+        let batch_size = batch_history.len();
 
-        let input_tensor = Value::from_array((input_shape, padded_history))
+        let mut flattened_batch = Vec::with_capacity(batch_size * max_length);
+
+        for history in batch_history {
+            let padded = prepare_sequence(&history, max_length, padding_value);
+            flattened_batch.extend(padded);
+        }
+
+        let input_shape = vec![batch_size, max_length];
+
+        let input_tensor = Value::from_array((input_shape, flattened_batch))
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
         let inputs = ort::inputs!["input_seq" => input_tensor];
@@ -57,7 +65,6 @@ impl Recommender {
         
         let embeddings_slice = embeddings_tensor.1;
 
-        // returns as vec
         Ok(embeddings_slice.to_vec())
     }
 }

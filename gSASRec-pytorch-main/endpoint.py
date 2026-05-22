@@ -2,7 +2,7 @@ import os
 import torch
 import numpy as np
 import onnxruntime as ort
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from argparse import ArgumentParser
@@ -103,12 +103,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # middleware to eventually test the path
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    print(f"\n[MIDDLEWARE] Request arrived: {request.method} {request.url.path}")
-    response = await call_next(request)
-    print(f"[MIDDLEWARE] Response sent: Status {response.status_code}")
-    return response
+# @app.middleware("http")
+# async def log_requests(request: Request, call_next):
+#     print(f"\n[MIDDLEWARE] Request arrived: {request.method} {request.url.path}")
+#     response = await call_next(request)
+#     print(f"[MIDDLEWARE] Response sent: Status {response.status_code}")
+#     return response
 
 # health check functions
 # if it is called the root
@@ -152,7 +152,7 @@ async def get_embeddings_checkpoint(request: EmbeddingsRequest):
         input_tensor = torch.tensor(padded_batch, dtype=torch.long).to(device)
 
         with torch.no_grad():
-            with track_model_latency("pytorch"):
+            with track_model_latency():
                 seq_emb, _ = model(input_tensor)
             final_embeddings_list = seq_emb.tolist()
 
@@ -184,7 +184,7 @@ async def get_embeddings_onnx(request: EmbeddingsRequest):
         input_array = np.array(padded_batch, dtype=np.int64)
 
         # run the ONNX model
-        with track_model_latency("onnx"):
+        with track_model_latency():
             outputs = session.run(["embedded"], {"input_seq": input_array})
         final_embeddings_list = outputs[0].tolist()
 
@@ -205,20 +205,15 @@ async def get_embeddings_onnx_rust(request: EmbeddingsRequest):
     rust_model = server_memory["rust_model"]
 
     try:
-        batch_results = []
+        # get the embeddings from the onnx model in rust
+        with track_model_latency():
+            flat_embeddings = rust_model.get_embeddings(request.batch_sequences)
 
-        for sequence in request.batch_sequences:
-            # get the embeddings from the onnx model in rust
-            flat_embeddings = rust_model.get_embeddings(sequence)
+        batch_size = len(request.batch_sequences)
+        arr = np.array(flat_embeddings, dtype=np.float32)
+        reshaped_batch = arr.reshape(batch_size, MAX_LENGTH, -1).tolist()
 
-            # reshape because it returns a flat array
-            arr = np.array(flat_embeddings, dtype=np.float32)
-            reshaped_sequence = arr.reshape(MAX_LENGTH, -1).tolist()
-
-            # add the list to the results
-            batch_results.append(reshaped_sequence)
-
-        return EmbeddingsResponse(embeddings=batch_results)
+        return EmbeddingsResponse(embeddings=reshaped_batch)
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error Rust ONNX model: {str(e)}")

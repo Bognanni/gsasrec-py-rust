@@ -14,3 +14,6 @@ fastapi
 pydantic
 uvicorn
 onnxruntime-gpu
+psutil
+matplotlib
+pandas

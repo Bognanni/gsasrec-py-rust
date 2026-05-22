@@ -29,6 +29,4 @@ models
 *.data
 
 # Useless stuff
-Single_inference_web.png
-Single_inference_web_1m.png
-test.png
+*.png
