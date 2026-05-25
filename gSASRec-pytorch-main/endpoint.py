@@ -205,11 +205,17 @@ async def get_embeddings_onnx_rust(request: EmbeddingsRequest):
     rust_model = server_memory["rust_model"]
 
     try:
-        # get the embeddings from the onnx model in rust
-        with track_model_latency():
-            flat_embeddings = rust_model.get_embeddings(request.batch_sequences)
+        padded_batch = []
+        for sequence in request.batch_sequences:
+            if len(sequence) > MAX_LENGTH:
+                sequence = sequence[-MAX_LENGTH:]
+            padding_length = MAX_LENGTH - len(sequence)
+            padded_sequence = ([PADDING_VALUE] * padding_length) + sequence
+            padded_batch.append(padded_sequence)
 
-        batch_size = len(request.batch_sequences)
+        flat_embeddings = rust_model.get_embeddings(padded_batch)
+
+        batch_size = len(padded_batch)
         arr = np.array(flat_embeddings, dtype=np.float32)
         reshaped_batch = arr.reshape(batch_size, MAX_LENGTH, -1).tolist()
 
