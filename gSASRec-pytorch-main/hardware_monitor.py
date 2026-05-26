@@ -5,6 +5,7 @@ import pynvml
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
+from matplotlib.dates import DateFormatter
 
 # init NVIDIA driver
 pynvml.nvmlInit()
@@ -75,7 +76,7 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
             ax1.grid(True, linestyle='--', alpha=0.7)
             ax1.legend()
 
-            # 2: Memory (RAM e VRAM)
+            # Memory (RAM e VRAM)
             ax2.plot(df['Time'], df['FastAPI_RAM_MB'], label='RAM (MB)', color='orange', linewidth=2)
             ax2.plot(df['Time'], df['GPU_VRAM_MB'], label='VRAM (MB)', color='red', linewidth=2)
             ax2.set_title('Memory Impact')
@@ -83,8 +84,6 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
             ax2.set_xlabel('Time')
             ax2.grid(True, linestyle='--', alpha=0.7)
             ax2.legend()
-
-            from matplotlib.dates import DateFormatter
 
             ax2.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
             fig.autofmt_xdate()

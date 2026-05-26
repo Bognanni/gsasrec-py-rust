@@ -17,3 +17,4 @@ onnxruntime-gpu
 psutil
 matplotlib
 pandas
+nvidia-ml-py

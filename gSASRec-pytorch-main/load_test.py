@@ -30,7 +30,7 @@ if __name__ == '__main__':
     run_all_tests(config, request_builder)
 
     # get the pure latencies
-    response = requests.get("http://localhost:8081/metrics/model-latency")
-    metrics_data = response.json()
+    # response = requests.get("http://localhost:8081/metrics/model-latency")
+    # metrics_data = response.json()
 
-    print(metrics_data)
+    # print(metrics_data)

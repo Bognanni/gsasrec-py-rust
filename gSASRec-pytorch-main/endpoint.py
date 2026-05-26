@@ -122,7 +122,7 @@ async def health_check_endpoint():
     return {"status": "ok"}
 
 @app.post("/get_embeddings/checkpoint", response_model=EmbeddingsResponse)
-async def get_embeddings_checkpoint(request: EmbeddingsRequest):
+def get_embeddings_checkpoint(request: EmbeddingsRequest):
     # security check: verify that the model was correctly loaded at startup
     if "pytorch_model" not in server_memory:
         raise HTTPException(
@@ -134,20 +134,10 @@ async def get_embeddings_checkpoint(request: EmbeddingsRequest):
     device = server_memory["device"]
 
     try:
-        padded_batch = []
-
-        # we loop through every user sequence sent by the client
-        for sequence in request.batch_sequences:
-            # if the sequence is longer than MAX_LENGTH, we keep only the most recent items
-            if len(sequence) > MAX_LENGTH:
-                sequence = sequence[-MAX_LENGTH:]
-
-            # calculate how many padding spots we need to fill
-            padding_length = MAX_LENGTH - len(sequence)
-
-            # create the padded sequence
-            padded_sequence = ([PADDING_VALUE] * padding_length) + sequence
-            padded_batch.append(padded_sequence)
+        padded_batch = [
+            ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
+            for seq in request.batch_sequences
+        ]
 
         input_tensor = torch.tensor(padded_batch, dtype=torch.long).to(device)
 
@@ -163,7 +153,7 @@ async def get_embeddings_checkpoint(request: EmbeddingsRequest):
         raise HTTPException(status_code=400, detail=f"Error processing the tensor: {str(e)}")
 
 @app.post("/get_embeddings/onnx", response_model=EmbeddingsResponse)
-async def get_embeddings_onnx(request: EmbeddingsRequest):
+def get_embeddings_onnx(request: EmbeddingsRequest):
     if "onnx_model" not in server_memory:
         raise HTTPException(
             status_code=500,
@@ -173,12 +163,10 @@ async def get_embeddings_onnx(request: EmbeddingsRequest):
     session = server_memory["onnx_model"]
 
     try:
-        padded_batch = []
-        for sequence in request.batch_sequences:
-            if len(sequence) > MAX_LENGTH:
-                sequence = sequence[-MAX_LENGTH:]
-            padding_length = MAX_LENGTH - len(sequence)
-            padded_batch.append(([PADDING_VALUE] * padding_length) + sequence)
+        padded_batch = [
+            ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
+            for seq in request.batch_sequences
+        ]
 
         # numpy array for onnx
         input_array = np.array(padded_batch, dtype=np.int64)
@@ -195,7 +183,7 @@ async def get_embeddings_onnx(request: EmbeddingsRequest):
 
 
 @app.post("/get_embeddings/onnx_rust", response_model=EmbeddingsResponse)
-async def get_embeddings_onnx_rust(request: EmbeddingsRequest):
+def get_embeddings_onnx_rust(request: EmbeddingsRequest):
     if "rust_model" not in server_memory:
         raise HTTPException(
             status_code=500,
@@ -205,13 +193,10 @@ async def get_embeddings_onnx_rust(request: EmbeddingsRequest):
     rust_model = server_memory["rust_model"]
 
     try:
-        padded_batch = []
-        for sequence in request.batch_sequences:
-            if len(sequence) > MAX_LENGTH:
-                sequence = sequence[-MAX_LENGTH:]
-            padding_length = MAX_LENGTH - len(sequence)
-            padded_sequence = ([PADDING_VALUE] * padding_length) + sequence
-            padded_batch.append(padded_sequence)
+        padded_batch = [
+            ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
+            for seq in request.batch_sequences
+        ]
 
         flat_embeddings = rust_model.get_embeddings(padded_batch)
 
@@ -249,6 +234,7 @@ if __name__ == "__main__":
                         default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt")
     parser.add_argument("--onnx", type=str,
                         default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx")
+    parser.add_argument("--workers", type=int, default=4, help="Number of uvicorn workers")
 
     args = parser.parse_args()
 
@@ -256,5 +242,6 @@ if __name__ == "__main__":
     SERVER_CONFIG["config_path"] = args.config
     SERVER_CONFIG["checkpoint_path"] = args.checkpoint
     SERVER_CONFIG["onnx_model_path"] = args.onnx
+    os.environ["ANYIO_NUM_THREADS"] = "32"
 
-    uvicorn.run(app, host="0.0.0.0", port=8081)
+    uvicorn.run("endpoint:app", host="0.0.0.0", port=8081, workers=args.workers)
