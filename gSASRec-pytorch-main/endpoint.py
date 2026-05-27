@@ -122,7 +122,7 @@ async def health_check_endpoint():
     return {"status": "ok"}
 
 @app.post("/get_embeddings/checkpoint", response_model=EmbeddingsResponse)
-def get_embeddings_checkpoint(request: EmbeddingsRequest):
+async def get_embeddings_checkpoint(request: EmbeddingsRequest):
     # security check: verify that the model was correctly loaded at startup
     if "pytorch_model" not in server_memory:
         raise HTTPException(
@@ -153,7 +153,7 @@ def get_embeddings_checkpoint(request: EmbeddingsRequest):
         raise HTTPException(status_code=400, detail=f"Error processing the tensor: {str(e)}")
 
 @app.post("/get_embeddings/onnx", response_model=EmbeddingsResponse)
-def get_embeddings_onnx(request: EmbeddingsRequest):
+async def get_embeddings_onnx(request: EmbeddingsRequest):
     if "onnx_model" not in server_memory:
         raise HTTPException(
             status_code=500,
@@ -183,7 +183,7 @@ def get_embeddings_onnx(request: EmbeddingsRequest):
 
 
 @app.post("/get_embeddings/onnx_rust", response_model=EmbeddingsResponse)
-def get_embeddings_onnx_rust(request: EmbeddingsRequest):
+async def get_embeddings_onnx_rust(request: EmbeddingsRequest):
     if "rust_model" not in server_memory:
         raise HTTPException(
             status_code=500,
