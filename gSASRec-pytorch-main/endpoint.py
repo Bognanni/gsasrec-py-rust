@@ -234,7 +234,7 @@ if __name__ == "__main__":
                         default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt")
     parser.add_argument("--onnx", type=str,
                         default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx")
-    parser.add_argument("--workers", type=int, default=4, help="Number of uvicorn workers")
+    parser.add_argument("--workers", type=int, default=1, help="Number of uvicorn workers")
 
     args = parser.parse_args()
 

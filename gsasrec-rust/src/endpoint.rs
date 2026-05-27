@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 use pyo3::exceptions::PyRuntimeError;
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Value;
+use ort::execution_providers::CUDAExecutionProvider;
 use std::time::Instant;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -16,10 +17,16 @@ pub struct Recommender {
 impl Recommender {
     #[new]
     pub fn new(model_path: &str) -> PyResult<Self> {
+        println!("ONNX Runtime initialized.");
+
         let session = Session::builder()
             .map_err(|e| PyRuntimeError::new_err(format!("Builder error: {}", e)))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
             .map_err(|e| PyRuntimeError::new_err(format!("Optimization error: {}", e)))?
+            .with_execution_providers([
+                CUDAExecutionProvider::default().build()
+            ])
+            .map_err(|e| PyRuntimeError::new_err(format!("Execution provider error: {}", e)))?
             .commit_from_file(model_path)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to load model: {}", e)))?;
 

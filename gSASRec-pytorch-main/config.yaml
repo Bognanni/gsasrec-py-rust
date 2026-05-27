@@ -14,13 +14,13 @@ headers: {}
 
 request:
   # @app.post route
-  path: "/get_embeddings/checkpoint"
+  path: "/get_embeddings/onnx_rust"
 
   sequence_length: 40
   # ids_csv: "./item_ids.csv"    # optional — one ID per row, header skipped
 
 load_test:
-  target_rps: [50]
+  target_rps: [10]
   duration_seconds: 60
   num_clients: 32
   num_warmup_requests: 30
