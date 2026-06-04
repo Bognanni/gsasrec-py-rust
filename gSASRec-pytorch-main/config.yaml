@@ -14,7 +14,7 @@ headers: {}
 
 request:
   # @app.post route
-  path: "/get_embeddings/onnx_rust"
+  path: "/get_embeddings/checkpoint"
 
   sequence_length: 40
   # ids_csv: "./item_ids.csv"    # optional — one ID per row, header skipped

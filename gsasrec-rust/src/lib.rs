@@ -11,5 +11,6 @@ use pyo3::prelude::*;
 #[pymodule]
 fn gsasrec_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<endpoint::Recommender>()?;
+    m.add_class::<endpoint::CandleRecommender>()?;
     Ok(())
 }

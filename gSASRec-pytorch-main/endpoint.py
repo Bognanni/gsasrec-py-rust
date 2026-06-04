@@ -19,7 +19,8 @@ PADDING_VALUE = 0
 SERVER_CONFIG = {
     "config_path": "config_ml1m.py",
     "checkpoint_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt",
-    "onnx_model_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx"
+    "onnx_model_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx",
+    "safetensors_path": "pre_trained/"
     }
 
 
@@ -61,6 +62,12 @@ async def lifespan(app: FastAPI):
         yield
         return
 
+    if not os.path.exists(SERVER_CONFIG["safetensors_path"]):
+        print(f"CRITICAL ERROR: Cannot find the .safetensors file at: '{SERVER_CONFIG['safetensors_path']}'")
+        print("Please check your spelling or provide the correct --safetensors path.")
+        yield
+        return
+
     try:
         # paths from global dict
         config = load_config(SERVER_CONFIG["config_path"])
@@ -88,6 +95,10 @@ async def lifespan(app: FastAPI):
         rust_session = gsasrec_rust.Recommender(SERVER_CONFIG["onnx_model_path"])
         server_memory["rust_model"] = rust_session
         print("GSASRec RUST ONNX model successfully loaded and ready to answer!")
+
+        candle_session = gsasrec_rust.CandleRecommender(SERVER_CONFIG["safetensors_path"])
+        server_memory["candle_rust_model"] = candle_session
+        print("GSASRec RUST Candle model successfully loaded and ready to answer!")
 
     except Exception as e:
         print(f"Critical error during models' loading: {e}")
@@ -234,6 +245,8 @@ if __name__ == "__main__":
                         default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt")
     parser.add_argument("--onnx", type=str,
                         default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx")
+    parser.add_argument("--candle", type=str,
+                        default="pre_trained/")
     parser.add_argument("--workers", type=int, default=1, help="Number of uvicorn workers")
 
     args = parser.parse_args()
@@ -242,6 +255,7 @@ if __name__ == "__main__":
     SERVER_CONFIG["config_path"] = args.config
     SERVER_CONFIG["checkpoint_path"] = args.checkpoint
     SERVER_CONFIG["onnx_model_path"] = args.onnx
+    SERVER_CONFIG["safetensors_path"] = args.candle
     os.environ["ANYIO_NUM_THREADS"] = "32"
 
     uvicorn.run("endpoint:app", host="0.0.0.0", port=8081, workers=args.workers)

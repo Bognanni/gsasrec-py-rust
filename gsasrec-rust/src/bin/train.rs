@@ -37,7 +37,7 @@ fn main() -> Result<()> {
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
     let model = GSASRec::new(vb, config.clone())?;
 
-    let mut optimizer = AdamW::new(varmap.all_vars(),ParamsAdamW {lr: 0.001, ..Default::default()})?;
+    let mut optimizer = AdamW::new(varmap.all_vars(),ParamsAdamW {lr: 0.001, weight_decay: 0.0, ..Default::default()})?;
 
     let batches_per_epoch = std::cmp::min(config.max_batches_per_epoch, train_indices.len() / config.train_batch_size);
     

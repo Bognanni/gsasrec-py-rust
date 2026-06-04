@@ -7,7 +7,14 @@ use std::time::Instant;
 use std::fs::OpenOptions;
 use std::io::Write;
 
+use candle_core::{Device, Tensor, DType};
+use candle_nn::VarBuilder;
 
+use crate::model::GSASRec;
+use crate::config::GsasrecConfig;
+
+
+// Reccomender class that uses ONNX
 #[pyclass]
 pub struct Recommender {
     session: Session,
@@ -71,5 +78,79 @@ impl Recommender {
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         
         Ok(embeddings_tensor.1.to_vec())
+    }
+}
+
+// Recommender class that uses the Rust implementation of the model
+#[pyclass]
+pub struct CandleRecommender {
+    model: GSASRec,
+    device: Device,
+}
+
+#[pymethods]
+impl CandleRecommender {
+    #[new]
+    pub fn new(model_path: &str, dataset_name: &str, num_items: u32) -> PyResult<Self> {
+        println!("Candle Runtime initialized.");
+        
+        let device = Device::cuda_if_available(0)
+            .map_err(|e| PyRuntimeError::new_err(format!("Device error: {}", e)))?;
+
+        let config = GsasrecConfig::new(dataset_name, num_items);
+
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)
+                .map_err(|e| PyRuntimeError::new_err(format!("Error loading weights: {}", e)))?
+        };
+
+        let model = GSASRec::new(vb, config)
+            .map_err(|e| PyRuntimeError::new_err(format!("Error initializing model: {}", e)))?;
+
+        Ok(CandleRecommender { model, device })
+    }
+
+    pub fn get_embeddings(&mut self, padded_batch: Vec<Vec<i64>>) -> PyResult<Vec<f32>> {
+        let batch_size = padded_batch.len();
+        if batch_size == 0 { 
+            return Ok(Vec::new()); 
+        }
+        let seq_len = padded_batch[0].len();
+
+        let mut flattened_batch = Vec::with_capacity(batch_size * seq_len);
+        for sequence in padded_batch {
+            for &item in &sequence {
+                flattened_batch.push(item as u32);
+            }
+        }
+
+        let input_tensor = Tensor::from_vec(flattened_batch, (batch_size, seq_len), &self.device)
+            .map_err(|e| PyRuntimeError::new_err(format!("Tensor error: {}", e)))?;
+
+        let start_time = Instant::now();
+
+        let (seq_emb, _attentions) = self.model.forward(&input_tensor, false)
+            .map_err(|e| PyRuntimeError::new_err(format!("Forward pass error: {}", e)))?;
+        
+        let duration = start_time.elapsed();
+        let latency_ms = duration.as_secs_f64() * 1000.0;
+
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("latencies.csv")
+        {
+            let _ = writeln!(file, "{}", latency_ms);
+        }
+
+        let output_vec = seq_emb
+            .to_device(&Device::Cpu)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+            .flatten_all()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+            .to_vec1::<f32>()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+
+        Ok(output_vec)
     }
 }

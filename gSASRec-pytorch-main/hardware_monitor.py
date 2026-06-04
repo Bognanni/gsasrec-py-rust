@@ -7,6 +7,56 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from matplotlib.dates import DateFormatter
 
+
+def export_csv_to_excel(csv_filename, excel_filename):
+    """
+    Read the .csv file and converts it to excel
+    """
+    print(f"\nGenerating Excel file.")
+    try:
+        df_export = pd.read_csv(csv_filename)
+        df_export.to_excel(excel_filename, index=False, engine='openpyxl')
+        print(f"Excel file saved with success as: {excel_filename}")
+    except Exception as e:
+        print(f"Error during the creation of the Excel file: {e}")
+
+def generate_benchmark_plot(csv_filename, plot_filename):
+    """
+    Reads the .csv file and creates the benchmark plot.
+    """
+    print(f"Generating the graph.")
+    try:
+        df = pd.read_csv(csv_filename)
+        df['Time'] = pd.to_datetime(df['Time'], format='%H:%M:%S.%f')
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+
+        ax1.plot(df['Time'], df['CPU_Total_%'], label='CPU (%)', color='blue', linewidth=2)
+        ax1.plot(df['Time'], df['GPU_Util_%'], label='GPU (%)', color='green', linewidth=2)
+        ax1.set_title('Using of CPU and GPU for computation')
+        ax1.set_ylabel('%')
+        ax1.grid(True, linestyle='--', alpha=0.7)
+        ax1.legend()
+
+        ax2.plot(df['Time'], df['FastAPI_RAM_MB'], label='RAM (MB)', color='orange', linewidth=2)
+        ax2.plot(df['Time'], df['GPU_VRAM_MB'], label='VRAM (MB)', color='red', linewidth=2)
+        ax2.set_title('Memory Impact')
+        ax2.set_ylabel('Megabytes (MB)')
+        ax2.set_xlabel('Time')
+        ax2.grid(True, linestyle='--', alpha=0.7)
+        ax2.legend()
+
+        ax2.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
+        fig.autofmt_xdate()
+
+        plt.tight_layout()
+        plt.savefig(plot_filename, dpi=300)
+        print(f"Image saved with success as: {plot_filename}")
+
+    except Exception as e:
+        print(f"Error generating the image: {e}")
+
+
 # init NVIDIA driver
 pynvml.nvmlInit()
 gpu_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
@@ -45,7 +95,6 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
             try:
                 gpu_util = pynvml.nvmlDeviceGetUtilizationRates(gpu_handle).gpu
             except pynvml.NVMLError:
-                # 0 if NVIDIA driver fails
                 gpu_util = 0
 
             try:
@@ -62,37 +111,6 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
     except KeyboardInterrupt:
         print("\nMonitoring ended. Data saved in hardware_metrics.csv")
 
-        try:
-            df = pd.read_csv('hardware_metrics.csv')
-            df['Time'] = pd.to_datetime(df['Time'], format='%H:%M:%S.%f')
+        export_csv_to_excel('hardware_metrics.csv', 'hardware_metrics.xlsx')
 
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
-
-            # 1: CPU e GPU Util [%]
-            ax1.plot(df['Time'], df['CPU_Total_%'], label='CPU (%)', color='blue', linewidth=2)
-            ax1.plot(df['Time'], df['GPU_Util_%'], label='GPU (%)', color='green', linewidth=2)
-            ax1.set_title('Using of CPU and GPU for computation')
-            ax1.set_ylabel('%')
-            ax1.grid(True, linestyle='--', alpha=0.7)
-            ax1.legend()
-
-            # Memory (RAM e VRAM)
-            ax2.plot(df['Time'], df['FastAPI_RAM_MB'], label='RAM (MB)', color='orange', linewidth=2)
-            ax2.plot(df['Time'], df['GPU_VRAM_MB'], label='VRAM (MB)', color='red', linewidth=2)
-            ax2.set_title('Memory Impact')
-            ax2.set_ylabel('Megabytes (MB)')
-            ax2.set_xlabel('Time')
-            ax2.grid(True, linestyle='--', alpha=0.7)
-            ax2.legend()
-
-            ax2.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
-            fig.autofmt_xdate()
-
-            plt.tight_layout()
-
-            plot_filename = 'benchmark_report.png'
-            plt.savefig(plot_filename, dpi=300)
-            print(f"Image saved with success as: {plot_filename}")
-
-        except Exception as e:
-            print(f"Error generating the image: {e}")
+        generate_benchmark_plot('hardware_metrics.csv', 'benchmark_report.png')
