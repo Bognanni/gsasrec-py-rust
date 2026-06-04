@@ -1,5 +1,5 @@
 use candle_core::{DType, Result, Tensor, Device};
-use candle_nn::{AdamW, Embedding, Optimizer, ParamsAdamW, VarBuilder, VarMap, Module};
+use candle_nn::{AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::fs;
@@ -87,12 +87,7 @@ fn main() -> Result<()> {
             let labels_unsqueezed = labels.unsqueeze(2)?;
             let pos_neg_concat = Tensor::cat(&[&labels_unsqueezed, &negatives], 2)?;
 
-            // get the weights to compute the embeddings of the list of positives and negatives
-            let out_weights = model.get_output_embeddings_weight();
-
-            // create the Embeddings object and apply it to pos_neg_concat
-            let temp_out_emb = Embedding::new(out_weights, config.embedding_dim);
-            let pos_neg_embeddings = temp_out_emb.forward(&pos_neg_concat)?;
+            let pos_neg_embeddings = model.forward_output_embeddings(&pos_neg_concat)?;
 
             // tensor with only the pad tensor value (num_items + 1), shape: [batch_size, sequence_length]
             let pad_tensor = Tensor::new((num_items + 1) as u32, &device)?.broadcast_as(model_input.shape())?;

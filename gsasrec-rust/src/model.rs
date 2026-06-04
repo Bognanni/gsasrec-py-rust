@@ -1,5 +1,5 @@
 use candle_core::{DType, IndexOp, Result, Tensor};
-use candle_nn::{embedding, layer_norm, Dropout, Embedding, LayerNorm, Module, VarBuilder};
+use candle_nn::{Init, layer_norm, Dropout, Embedding, LayerNorm, Module, VarBuilder};
 use std::collections::HashSet;
 use crate::config::GsasrecConfig;
 use crate::transformer::TransformerBlock;
@@ -18,17 +18,26 @@ pub struct GSASRec {
 impl GSASRec {
     // specify the var builder, so the weights
     pub fn new(vb: VarBuilder, config: GsasrecConfig) -> Result<Self> {
-        // id corresponding to padding
         let pad_id = (config.num_items + 1) as usize;
         
-        // the size is +1 again because the id=0 is unused
-        let item_embedding = embedding(pad_id + 1, config.embedding_dim, vb.pp("item_embedding"))?;
-        // for the position the size in input is equals to the dim. of the sequence
-        let position_embedding = embedding(config.sequence_length, config.embedding_dim, vb.pp("position_embedding"))?;
+        let init_strategy = Init::Randn { mean: 0.0, stdev: 0.02 };
+
+        let item_weights = vb.pp("item_embedding").get_with_hints(
+            (pad_id + 1, config.embedding_dim),
+            "weight",
+            init_strategy.clone(),
+        )?;
+        let item_embedding = Embedding::new(item_weights, config.embedding_dim);
+
+        let pos_weights = vb.pp("position_embedding").get_with_hints(
+            (config.sequence_length, config.embedding_dim),
+            "weight",
+            init_strategy.clone(),
+        )?;
+        let position_embedding = Embedding::new(pos_weights, config.embedding_dim);
         
         let embeddings_dropout = Dropout::new(config.dropout_rate);
 
-        // a vector of transformer blocks
         let mut transformer_blocks = Vec::new();
         for i in 0..config.num_blocks {
             let block_vb = vb.pp(format!("transformer_blocks.{}", i));
@@ -37,9 +46,13 @@ impl GSASRec {
 
         let seq_norm = layer_norm(config.embedding_dim, 1e-5, vb.pp("seq_norm"))?;
 
-        // matrix of embedding for the output if we don't reuse the item embeddings
         let output_embedding = if !config.reuse_item_embeddings {
-            Some(embedding(pad_id + 1, config.embedding_dim, vb.pp("output_embedding"))?)
+            let out_weights = vb.pp("output_embedding").get_with_hints(
+                (pad_id + 1, config.embedding_dim),
+                "weight",
+                init_strategy.clone(),
+            )?;
+            Some(Embedding::new(out_weights, config.embedding_dim))
         } else {
             None
         };
@@ -53,6 +66,15 @@ impl GSASRec {
             seq_norm,
             output_embedding,
         })
+    }
+
+
+    pub fn forward_output_embeddings(&self, input: &Tensor) -> Result<Tensor> {
+        if let Some(ref out_emb) = self.output_embedding {
+            out_emb.forward(input)
+        } else {
+            self.item_embedding.forward(input)
+        }
     }
 
     // return the weights of embedding depending from the reuse
