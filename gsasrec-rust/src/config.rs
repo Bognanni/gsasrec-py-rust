@@ -41,16 +41,16 @@ impl GsasrecConfig {
             dataset_name: dataset_name.to_string(),
             num_items,
             
-            sequence_length: 50,
-            embedding_dim: 256,
-            num_heads: 4,
-            num_blocks: 3,
-            dropout_rate: 0.0,
+            sequence_length: 200,
+            embedding_dim: 128,
+            num_heads: 1,
+            num_blocks: 2,
+            dropout_rate: 0.5,
             reuse_item_embeddings: false,
             
-            train_batch_size: 16,
+            train_batch_size: 128,
             negs_per_pos: 256,
-            max_epochs: 50,
+            max_epochs: 10000,
             max_batches_per_epoch: 100,
             gbce_t: 0.75,
             
