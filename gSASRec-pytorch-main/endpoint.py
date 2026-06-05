@@ -20,7 +20,7 @@ SERVER_CONFIG = {
     "config_path": "config_ml1m.py",
     "checkpoint_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt",
     "onnx_model_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx",
-    "safetensors_path": "pre_trained/"
+    "safetensors_path": "pre_trained/gsasrec-ml-1m-step6627-best.safetensors"
     }
 
 
@@ -220,6 +220,33 @@ async def get_embeddings_onnx_rust(request: EmbeddingsRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error Rust ONNX model: {str(e)}")
 
+@app.post("/get_embeddings/candle_rust", response_model=EmbeddingsResponse)
+async def get_embeddings_candle_rust(request: EmbeddingsRequest):
+    if "candle_rust_model" not in server_memory:
+        raise HTTPException(
+            status_code=500,
+            detail="The Rust Candle model was not loaded correctly. Ensure rust_engine is compiled and the model is initialized."
+        )
+
+    candle_model = server_memory["candle_rust_model"]
+
+    try:
+        padded_batch = [
+            ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
+            for seq in request.batch_sequences
+        ]
+
+        flat_embeddings = candle_model.get_embeddings(padded_batch)
+
+        batch_size = len(padded_batch)
+        arr = np.array(flat_embeddings, dtype=np.float32)
+        reshaped_batch = arr.reshape(batch_size, MAX_LENGTH, -1).tolist()
+
+        return EmbeddingsResponse(embeddings=reshaped_batch)
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error Rust Candle model: {str(e)}")
+
 
 @app.get("/metrics/model-latency")
 def model_latency_metrics():
@@ -246,7 +273,7 @@ if __name__ == "__main__":
     parser.add_argument("--onnx", type=str,
                         default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx")
     parser.add_argument("--candle", type=str,
-                        default="pre_trained/")
+                        default="pre_trained/gsasrec-ml-1m-step6627-best.safetensors")
     parser.add_argument("--workers", type=int, default=1, help="Number of uvicorn workers")
 
     args = parser.parse_args()

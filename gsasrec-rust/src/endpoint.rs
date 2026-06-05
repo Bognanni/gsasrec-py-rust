@@ -91,12 +91,14 @@ pub struct CandleRecommender {
 #[pymethods]
 impl CandleRecommender {
     #[new]
-    pub fn new(model_path: &str, dataset_name: &str, num_items: u32) -> PyResult<Self> {
+    pub fn new(model_path: &str) -> PyResult<Self> {
         println!("Candle Runtime initialized.");
         
         let device = Device::cuda_if_available(0)
             .map_err(|e| PyRuntimeError::new_err(format!("Device error: {}", e)))?;
 
+        let dataset_name = "ml-1m";
+        let num_items = 3416;
         let config = GsasrecConfig::new(dataset_name, num_items);
 
         let vb = unsafe {
