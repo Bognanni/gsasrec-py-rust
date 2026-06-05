@@ -128,25 +128,20 @@ fn main() -> Result<()> {
 
             // probability of a random item considered negative
             let alpha = config.negs_per_pos as f64 / (num_items as f64 - 1.0);
-            // temperature hyperparameter
             let t = config.gbce_t as f64;
-            // exponent used computed using alpha and t
             let beta = alpha * ((1.0 - 1.0 / alpha) * t + 1.0 / alpha);
-            let eps = 1e-7;
+            let eps = 1e-7f32;
 
-            // sigmoid to have the scores between 0 and 1
             let positive_probs = candle_nn::ops::sigmoid(&positive_logits)?;
-            // set the max and min to not be exactly 0 or 1
             let positive_probs = positive_probs.maximum(eps)?.minimum(1.0 - eps)?;
-            
-            // pow of -beta to use the penality computed and set the limits again
-            let pos_probs_adjusted = positive_probs.to_dtype(DType::F64)?.powf(-beta)?.maximum(1.0 + eps)?.minimum(f64::MAX)?;
 
-            // 1 / (pos_probs_adjusted - 1) to have again logits (after we compute the log)
-            let to_log = (Tensor::new(1.0f64, &device)?.broadcast_as(pos_probs_adjusted.shape())?
-                / (pos_probs_adjusted - 1.0)?)?.maximum(eps)?.minimum(f64::MAX)?;
-            
-            let positive_logits_transformed = to_log.log()?.to_dtype(DType::F32)?;
+            let pos_probs_adjusted = positive_probs.powf(-beta)?.maximum(1.0 + eps)?;
+
+            let ones = Tensor::ones_like(&pos_probs_adjusted)?;
+            let denominator = (pos_probs_adjusted - 1.0)?.maximum(eps)?;
+            let to_log = (ones / denominator)?;
+
+            let positive_logits_transformed = to_log.log()?;
             
             // concat the positive logits with the mitigate bias and the negative logits
             let final_logits = Tensor::cat(&[&positive_logits_transformed, &negative_logits], 2)?;
