@@ -283,6 +283,5 @@ if __name__ == "__main__":
     SERVER_CONFIG["checkpoint_path"] = args.checkpoint
     SERVER_CONFIG["onnx_model_path"] = args.onnx
     SERVER_CONFIG["safetensors_path"] = args.candle
-    os.environ["ANYIO_NUM_THREADS"] = "32"
 
     uvicorn.run("endpoint:app", host="0.0.0.0", port=8081, workers=args.workers)

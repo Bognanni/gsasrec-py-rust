@@ -20,6 +20,7 @@ def export_csv_to_excel(csv_filename, excel_filename):
     except Exception as e:
         print(f"Error during the creation of the Excel file: {e}")
 
+
 def generate_benchmark_plot(csv_filename, plot_filename):
     """
     Reads the .csv file and creates the benchmark plot.
@@ -31,7 +32,7 @@ def generate_benchmark_plot(csv_filename, plot_filename):
 
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
 
-        ax1.plot(df['Time'], df['CPU_Total_%'], label='CPU (%)', color='blue', linewidth=2)
+        ax1.plot(df['Time'], df['FastAPI_CPU_%'], label='CPU (%)', color='blue', linewidth=2)
         ax1.plot(df['Time'], df['GPU_Util_%'], label='GPU (%)', color='green', linewidth=2)
         ax1.set_title('Using of CPU and GPU for computation')
         ax1.set_ylabel('%')
@@ -75,23 +76,39 @@ if not fastapi_pid:
     print("The server must be running.")
     exit(1)
 
-process = psutil.Process(fastapi_pid)
-print(f"Monitoring started. Tracking PID FastAPI: {fastapi_pid} (Port {SERVER_PORT})")
+main_process = psutil.Process(fastapi_pid)
+print(f"Monitoring started. Tracking PID FastAPI: {fastapi_pid} (Port {SERVER_PORT}) and all its workers.")
+
+initial_processes = [main_process] + main_process.children(recursive=True)
+for p in initial_processes:
+    try:
+        p.cpu_percent(interval=None)
+    except psutil.NoSuchProcess:
+        pass
 
 with open('hardware_metrics.csv', 'w', newline='') as f:
     writer = csv.writer(f)
-    writer.writerow(['Time', 'CPU_Total_%', 'FastAPI_RAM_MB', 'GPU_Util_%', 'GPU_VRAM_MB'])
+    writer.writerow(['Time', 'FastAPI_CPU_%', 'FastAPI_RAM_MB', 'GPU_Util_%', 'GPU_VRAM_MB'])
 
     try:
         while True:
-            cpu_util = psutil.cpu_percent()
-
             try:
-                ram_mb = process.memory_info().rss / (1024 * 1024)
+                current_processes = [main_process] + main_process.children(recursive=True)
             except psutil.NoSuchProcess:
-                print("\nFastAPI server closed. Ending monitoring.")
+                print("\nFastAPI main server closed. Ending monitoring.")
                 break
 
+            total_cpu_util = 0.0
+            total_ram_mb = 0.0
+
+            for p in current_processes:
+                try:
+                    total_cpu_util += p.cpu_percent(interval=None)
+                    total_ram_mb += p.memory_info().rss / (1024 * 1024)
+                except psutil.NoSuchProcess:
+                    pass
+
+            # monitoring GPU
             try:
                 gpu_util = pynvml.nvmlDeviceGetUtilizationRates(gpu_handle).gpu
             except pynvml.NVMLError:
@@ -103,7 +120,7 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
                 vram_mb = 0
 
             timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-            writer.writerow([timestamp, cpu_util, ram_mb, gpu_util, vram_mb])
+            writer.writerow([timestamp, total_cpu_util, total_ram_mb, gpu_util, vram_mb])
             f.flush()
 
             time.sleep(0.5)
@@ -112,5 +129,4 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
         print("\nMonitoring ended. Data saved in hardware_metrics.csv")
 
         export_csv_to_excel('hardware_metrics.csv', 'hardware_metrics.xlsx')
-
         generate_benchmark_plot('hardware_metrics.csv', 'benchmark_report.png')
