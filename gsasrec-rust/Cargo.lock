@@ -547,6 +547,7 @@ dependencies = [
  "ort",
  "pyo3",
  "rand 0.8.5",
+ "safetensors",
  "serde",
  "serde_json",
 ]

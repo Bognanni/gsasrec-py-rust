@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::exceptions::PyRuntimeError;
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Value;
-use ort::execution_providers::CUDAExecutionProvider;
+use ort::ep::{self, ExecutionProvider};   // ort 2.x: ep module + trait
 use std::time::Instant;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -14,7 +14,7 @@ use crate::model::GSASRec;
 use crate::config::GsasrecConfig;
 
 
-// Reccomender class that uses ONNX
+// Recommender class that uses ONNX
 #[pyclass]
 pub struct Recommender {
     session: Session,
@@ -24,16 +24,35 @@ pub struct Recommender {
 impl Recommender {
     #[new]
     pub fn new(model_path: &str) -> PyResult<Self> {
-        println!("ONNX Runtime initialized.");
-
-        let session = Session::builder()
+        let mut builder = Session::builder()
             .map_err(|e| PyRuntimeError::new_err(format!("Builder error: {}", e)))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
-            .map_err(|e| PyRuntimeError::new_err(format!("Optimization error: {}", e)))?
-            .with_execution_providers([
-                CUDAExecutionProvider::default().build()
-            ])
-            .map_err(|e| PyRuntimeError::new_err(format!("Execution provider error: {}", e)))?
+            .map_err(|e| PyRuntimeError::new_err(format!("Optimization error: {}", e)))?;
+
+        // ort 2.x: use ep::CUDA and the ExecutionProvider trait.
+        // is_available() checks whether the ORT binary was compiled with CUDA support.
+        // register() actually registers the EP on this builder and returns an error
+        // if the GPU is not found at runtime — instead of silently falling back to CPU.
+        let cuda = ep::CUDA::default();
+
+        if !cuda.is_available()
+            .map_err(|e| PyRuntimeError::new_err(format!("CUDA availability check error: {}", e)))?
+        {
+            return Err(PyRuntimeError::new_err(
+                "CUDA execution provider is not available in this ORT build. \
+                Make sure you have the 'cuda' feature enabled in Cargo.toml \
+                and that onnxruntime-gpu is installed."
+            ));
+        }
+
+        // register() propagates the error if the GPU cannot be initialised,
+        // so we get an explicit failure instead of a silent CPU fallback.
+        cuda.register(&mut builder)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to register CUDA EP: {}", e)))?;
+
+        println!("ONNX Runtime initialized with CUDA.");
+
+        let session = builder
             .commit_from_file(model_path)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to load model: {}", e)))?;
 
@@ -59,10 +78,10 @@ impl Recommender {
         let inputs = ort::inputs!["input_seq" => input_tensor];
 
         let start_time = Instant::now();
-        
+
         let outputs = self.session.run(inputs)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-            
+
         let duration = start_time.elapsed();
         let latency_ms = duration.as_secs_f64() * 1000.0;
 
@@ -76,12 +95,13 @@ impl Recommender {
 
         let embeddings_tensor = outputs["embedded"].try_extract_tensor::<f32>()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        
+
         Ok(embeddings_tensor.1.to_vec())
     }
 }
 
-// Recommender class that uses the Rust implementation of the model
+
+// Recommender class that uses the Rust (Candle) implementation of the model
 #[pyclass]
 pub struct CandleRecommender {
     model: GSASRec,
@@ -93,7 +113,7 @@ impl CandleRecommender {
     #[new]
     pub fn new(model_path: &str) -> PyResult<Self> {
         println!("Candle Runtime initialized.");
-        
+
         let device = Device::cuda_if_available(0)
             .map_err(|e| PyRuntimeError::new_err(format!("Device error: {}", e)))?;
 
@@ -114,8 +134,8 @@ impl CandleRecommender {
 
     pub fn get_embeddings(&mut self, padded_batch: Vec<Vec<i64>>) -> PyResult<Vec<f32>> {
         let batch_size = padded_batch.len();
-        if batch_size == 0 { 
-            return Ok(Vec::new()); 
+        if batch_size == 0 {
+            return Ok(Vec::new());
         }
         let seq_len = padded_batch[0].len();
 
@@ -133,7 +153,7 @@ impl CandleRecommender {
 
         let (seq_emb, _attentions) = self.model.forward(&input_tensor, false)
             .map_err(|e| PyRuntimeError::new_err(format!("Forward pass error: {}", e)))?;
-        
+
         let duration = start_time.elapsed();
         let latency_ms = duration.as_secs_f64() * 1000.0;
 

@@ -90,8 +90,6 @@ async def lifespan(app: FastAPI):
         server_memory["onnx_model"] = onnx_session
         print("GSASRec ONNX model successfully loaded and ready to answer!")
 
-        # add also the onnx model imported in rust
-
         rust_session = gsasrec_rust.Recommender(SERVER_CONFIG["onnx_model_path"])
         server_memory["rust_model"] = rust_session
         print("GSASRec RUST ONNX model successfully loaded and ready to answer!")

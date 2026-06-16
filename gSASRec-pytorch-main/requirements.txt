@@ -19,3 +19,4 @@ matplotlib
 pandas
 nvidia-ml-py
 openpyxl
+safetensors

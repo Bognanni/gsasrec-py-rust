@@ -12,12 +12,17 @@ crate-type = ["cdylib", "rlib"]
 name = "gsasrec_rust"
 path = "src/main.rs"
 
+[[bin]]
+name = "infer"
+path = "src/infer.rs"
+
 [dependencies]
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "download-binaries", "cuda", "tls-rustls", "copy-dylibs"] }
 ndarray = { version = "0.17.2", features = ["std"] }
 candle-core = { version = "0.8.2", features = ["cuda"] }
-candle-nn = { version = "0.8.2", features = ["cuda"] }
-serde = { version = "1.0", features = ["derive"] }
+candle-nn  = { version = "0.8.2", features = ["cuda"] }
+safetensors = "0.4"
+serde      = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rand = "0.8"
-pyo3 = { version = "0.22", features = ["extension-module"] }
+rand       = "0.8"
+pyo3       = { version = "0.22", features = ["extension-module"] }
