@@ -27,6 +27,32 @@ struct EmbeddingsResponse {
     time_ms: f32,
 }
 
+struct Args {
+    use_cuda: bool,
+}
+
+impl Args {
+    fn parse() -> Self {
+        let raw: Vec<String> = std::env::args().collect();
+        
+        // Impostiamo un valore di default. Di default usa CUDA se disponibile, 
+        // a meno che l'utente non specifichi esplicitamente cpu.
+        let mut use_cuda = true; 
+
+        let mut i = 1;
+        while i < raw.len() {
+            if raw[i] == "--device" && i + 1 < raw.len() {
+                use_cuda = raw[i+1].trim().to_lowercase() == "cuda";
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+
+        Self { use_cuda }
+    }
+}
+
 struct AppState {
     model: Arc<GSASRec>,
     device: Device,
@@ -107,8 +133,17 @@ async fn main() -> std::io::Result<()> {
 
     log::info!("Starting the server...");
     
-    let device = Device::cuda_if_available(0)
-        .expect("Critical error: Unable to initialize CUDA/CPU device");
+    let args = Args::parse();
+
+    let device = if args.use_cuda {
+        log::info!("CUDA requested (or default). Initializing GPU (falling back to CPU if unavailable).");
+        Device::cuda_if_available(0)
+            .expect("Critical error: Unable to initialize CUDA/CPU device")
+    } else {
+        log::info!("CPU explicitly requested by user.");
+        Device::Cpu
+    };
+
     log::info!("Device in use: {:?}", device);
 
     let model_path = "model.safetensors"; 

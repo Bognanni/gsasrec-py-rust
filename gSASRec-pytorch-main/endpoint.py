@@ -20,7 +20,8 @@ SERVER_CONFIG = {
     "config_path": "config_ml1m.py",
     "checkpoint_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt",
     "onnx_model_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx",
-    "safetensors_path": "pre_trained/model.safetensors"
+    "safetensors_path": "pre_trained/model.safetensors",
+    "device": "cuda"
     }
 
 
@@ -69,9 +70,17 @@ async def lifespan(app: FastAPI):
         return
 
     try:
+        # Determine device
+        req_device = SERVER_CONFIG["device"]
+        if req_device == "cuda" and not torch.cuda.is_available():
+            print("WARNING: 'cuda' requested but no GPU found. Falling back to 'cpu'.")
+            device = torch.device("cpu")
+        else:
+            device = torch.device(req_device)
+
+        print(f"Using device: {device}")
         # paths from global dict
         config = load_config(SERVER_CONFIG["config_path"])
-        device = get_device()
 
         print(f"Using device: {device}")
 
@@ -84,17 +93,22 @@ async def lifespan(app: FastAPI):
         server_memory["device"] = device
         print("GSASRec pytorch model successfully loaded and ready to answer!")
 
-        # to put also the onnx model on the gpu
-        onnx_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        # to put also the onnx model on the gpu or on the cpu
+        if device.type == "cuda":
+            onnx_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        else:
+            onnx_providers = ['CPUExecutionProvider']
         onnx_session = ort.InferenceSession(SERVER_CONFIG["onnx_model_path"], providers=onnx_providers)
         server_memory["onnx_model"] = onnx_session
         print("GSASRec ONNX model successfully loaded and ready to answer!")
 
-        rust_session = gsasrec_rust.Recommender(SERVER_CONFIG["onnx_model_path"])
+        # cpu if cuda not available
+        req_device = device.type if hasattr(device, 'type') else "cpu"
+        rust_session = gsasrec_rust.Recommender(SERVER_CONFIG["onnx_model_path"], req_device)
         server_memory["rust_model"] = rust_session
         print("GSASRec RUST ONNX model successfully loaded and ready to answer!")
 
-        candle_session = gsasrec_rust.CandleRecommender(SERVER_CONFIG["safetensors_path"])
+        candle_session = gsasrec_rust.CandleRecommender(SERVER_CONFIG["safetensors_path"], req_device)
         server_memory["candle_rust_model"] = candle_session
         print("GSASRec RUST Candle model successfully loaded and ready to answer!")
 
@@ -271,9 +285,9 @@ if __name__ == "__main__":
     parser.add_argument("--onnx", type=str,
                         default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx")
     parser.add_argument("--candle", type=str,
-                        default="pre_trained/gsasrec-ml-1m-step6627-best.safetensors")
+                        default="pre_trained/model.safetensors")
     parser.add_argument("--workers", type=int, default=1, help="Number of uvicorn workers")
-
+    parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cuda")
     args = parser.parse_args()
 
     # save the arguments globally so the async function can read them
@@ -281,5 +295,6 @@ if __name__ == "__main__":
     SERVER_CONFIG["checkpoint_path"] = args.checkpoint
     SERVER_CONFIG["onnx_model_path"] = args.onnx
     SERVER_CONFIG["safetensors_path"] = args.candle
+    SERVER_CONFIG["device"] = args.device
 
     uvicorn.run("endpoint:app", host="0.0.0.0", port=8081, workers=args.workers)

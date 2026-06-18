@@ -23,7 +23,7 @@ pub struct Recommender {
 #[pymethods]
 impl Recommender {
     #[new]
-    pub fn new(model_path: &str) -> PyResult<Self> {
+    pub fn new(model_path: &str, device_type: &str) -> PyResult<Self> {
         let mut builder = Session::builder()
             .map_err(|e| PyRuntimeError::new_err(format!("Builder error: {}", e)))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
@@ -33,24 +33,28 @@ impl Recommender {
         // is_available() checks whether the ORT binary was compiled with CUDA support.
         // register() actually registers the EP on this builder and returns an error
         // if the GPU is not found at runtime — instead of silently falling back to CPU.
-        let cuda = ep::CUDA::default();
+        if device_type == "cuda" {
+            let cuda = ep::CUDA::default();
 
-        if !cuda.is_available()
-            .map_err(|e| PyRuntimeError::new_err(format!("CUDA availability check error: {}", e)))?
-        {
-            return Err(PyRuntimeError::new_err(
-                "CUDA execution provider is not available in this ORT build. \
-                Make sure you have the 'cuda' feature enabled in Cargo.toml \
-                and that onnxruntime-gpu is installed."
-            ));
+            if !cuda.is_available()
+                .map_err(|e| PyRuntimeError::new_err(format!("CUDA availability check error: {}", e)))?
+            {
+                return Err(PyRuntimeError::new_err(
+                    "CUDA execution provider is not available in this ORT build. \
+                    Make sure you have the 'cuda' feature enabled in Cargo.toml \
+                    and that onnxruntime-gpu is installed."
+                ));
+            }
+
+            cuda.register(&mut builder)
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to register CUDA EP: {}", e)))?;
+
+            println!("ONNX Runtime initialized with CUDA.");
+        } else if device_type == "cpu" {
+            println!("ONNX Runtime initialized with CPU.");
+        } else {
+            return Err(PyRuntimeError::new_err(format!("Invalid device: '{}'. Please use 'cpu' or 'cuda'.", device_type)));
         }
-
-        // register() propagates the error if the GPU cannot be initialised,
-        // so we get an explicit failure instead of a silent CPU fallback.
-        cuda.register(&mut builder)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to register CUDA EP: {}", e)))?;
-
-        println!("ONNX Runtime initialized with CUDA.");
 
         let session = builder
             .commit_from_file(model_path)
@@ -111,11 +115,15 @@ pub struct CandleRecommender {
 #[pymethods]
 impl CandleRecommender {
     #[new]
-    pub fn new(model_path: &str) -> PyResult<Self> {
+    pub fn new(model_path: &str, device_type: &str) -> PyResult<Self> {
         println!("Candle Runtime initialized.");
 
-        let device = Device::cuda_if_available(0)
-            .map_err(|e| PyRuntimeError::new_err(format!("Device error: {}", e)))?;
+        let device = match device_type {
+            "cuda" => Device::cuda_if_available(0)
+                .map_err(|e| PyRuntimeError::new_err(format!("Device error: {}", e)))?,
+            "cpu" => Device::Cpu,
+            _ => return Err(PyRuntimeError::new_err(format!("Invalid device: '{}'. Please use 'cpu' or 'cuda'.", device_type))),
+        };
 
         let dataset_name = "ml-1m";
         let num_items = 3416;
