@@ -48,6 +48,7 @@ fn main() {
         
         let (_seq_emb, _attentions) = model.forward(&input_tensor, false).unwrap();
 
+        device.synchronize().expect("Error during CUDA synchronization");
         times_ms.push(t0.elapsed().as_secs_f64() * 1000.0);
     }
 

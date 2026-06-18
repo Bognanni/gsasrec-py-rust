@@ -20,7 +20,7 @@ SERVER_CONFIG = {
     "config_path": "config_ml1m.py",
     "checkpoint_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt",
     "onnx_model_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx",
-    "safetensors_path": "pre_trained/gsasrec-ml-1m-step6627-best.safetensors"
+    "safetensors_path": "pre_trained/model.safetensors"
     }
 
 
