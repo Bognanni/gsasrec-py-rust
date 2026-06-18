@@ -17,12 +17,13 @@ PADDING_VALUE = 0
 
 # default server config
 SERVER_CONFIG = {
-    "config_path": "config_ml1m.py",
-    "checkpoint_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt",
-    "onnx_model_path": "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx",
-    "safetensors_path": "pre_trained/model.safetensors",
-    "device": "cuda"
-    }
+    "config_path": os.environ.get("GSASREC_CONFIG", "config_ml1m.py"),
+    "checkpoint_path": os.environ.get("GSASREC_CHECKPOINT", "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt"),
+    "onnx_model_path": os.environ.get("GSASREC_ONNX", "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx"),
+    "safetensors_path": os.environ.get("GSASREC_CANDLE", "pre_trained/model.safetensors"),
+    "device": os.environ.get("GSASREC_DEVICE", "cuda"), # Default device
+    "engine": os.environ.get("GSASREC_ENGINE", "pytorch")
+}
 
 
 # template for input data: a list of lists of integers
@@ -70,47 +71,46 @@ async def lifespan(app: FastAPI):
         return
 
     try:
-        # Determine device
-        req_device = SERVER_CONFIG["device"]
-        if req_device == "cuda" and not torch.cuda.is_available():
+        device_str = SERVER_CONFIG["device"]
+        engine_choice = SERVER_CONFIG["engine"]
+
+        if device_str == "cuda" and not torch.cuda.is_available():
             print("WARNING: 'cuda' requested but no GPU found. Falling back to 'cpu'.")
-            device = torch.device("cpu")
-        else:
-            device = torch.device(req_device)
+            device_str = "cpu"
+            SERVER_CONFIG["device"] = device_str
 
-        print(f"Using device: {device}")
-        # paths from global dict
-        config = load_config(SERVER_CONFIG["config_path"])
+        device = torch.device(device_str)
+        print(f"Using device: {device} | Selected Engine: {engine_choice}")
 
-        print(f"Using device: {device}")
+        # --- PYTORCH ---
+        if engine_choice in ["pytorch", "all"]:
+            config = load_config(SERVER_CONFIG["config_path"])
+            model = build_model(config)
+            model = model.to(device)
+            model.load_state_dict(torch.load(SERVER_CONFIG["checkpoint_path"], map_location=device))
+            model.eval()
+            server_memory["pytorch_model"] = model
+            print("GSASRec PyTorch model loaded!")
 
-        model = build_model(config)
-        model = model.to(device)
-        model.load_state_dict(torch.load(SERVER_CONFIG["checkpoint_path"], map_location=device))
-        model.eval()
+        # --- ONNX PYTHON ---
+        if engine_choice in ["onnx_python", "all"]:
+            onnx_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if device_str == "cuda" else [
+                'CPUExecutionProvider']
+            onnx_session = ort.InferenceSession(SERVER_CONFIG["onnx_model_path"], providers=onnx_providers)
+            server_memory["onnx_model"] = onnx_session
+            print("GSASRec ONNX (Python) model loaded!")
 
-        server_memory["pytorch_model"] = model
-        server_memory["device"] = device
-        print("GSASRec pytorch model successfully loaded and ready to answer!")
+        # --- ONNX RUST ---
+        if engine_choice in ["onnx_rust", "all"]:
+            rust_session = gsasrec_rust.Recommender(SERVER_CONFIG["onnx_model_path"], device_str)
+            server_memory["rust_model"] = rust_session
+            print("GSASRec ONNX (Rust) model loaded!")
 
-        # to put also the onnx model on the gpu or on the cpu
-        if device.type == "cuda":
-            onnx_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-        else:
-            onnx_providers = ['CPUExecutionProvider']
-        onnx_session = ort.InferenceSession(SERVER_CONFIG["onnx_model_path"], providers=onnx_providers)
-        server_memory["onnx_model"] = onnx_session
-        print("GSASRec ONNX model successfully loaded and ready to answer!")
-
-        # cpu if cuda not available
-        req_device = device.type if hasattr(device, 'type') else "cpu"
-        rust_session = gsasrec_rust.Recommender(SERVER_CONFIG["onnx_model_path"], req_device)
-        server_memory["rust_model"] = rust_session
-        print("GSASRec RUST ONNX model successfully loaded and ready to answer!")
-
-        candle_session = gsasrec_rust.CandleRecommender(SERVER_CONFIG["safetensors_path"], req_device)
-        server_memory["candle_rust_model"] = candle_session
-        print("GSASRec RUST Candle model successfully loaded and ready to answer!")
+        # --- CANDLE RUST ---
+        if engine_choice in ["candle_rust", "all"]:
+            candle_session = gsasrec_rust.CandleRecommender(SERVER_CONFIG["safetensors_path"], device_str)
+            server_memory["candle_rust_model"] = candle_session
+            print("GSASRec Candle (Rust) model loaded!")
 
     except Exception as e:
         print(f"Critical error during models' loading: {e}")
@@ -288,13 +288,15 @@ if __name__ == "__main__":
                         default="pre_trained/model.safetensors")
     parser.add_argument("--workers", type=int, default=1, help="Number of uvicorn workers")
     parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cuda")
+    parser.add_argument("--engine", type=str, choices=["pytorch", "onnx_python", "onnx_rust", "candle_rust", "all"], default="pytorch")
     args = parser.parse_args()
 
     # save the arguments globally so the async function can read them
-    SERVER_CONFIG["config_path"] = args.config
-    SERVER_CONFIG["checkpoint_path"] = args.checkpoint
-    SERVER_CONFIG["onnx_model_path"] = args.onnx
-    SERVER_CONFIG["safetensors_path"] = args.candle
-    SERVER_CONFIG["device"] = args.device
+    os.environ["GSASREC_CONFIG"] = args.config
+    os.environ["GSASREC_CHECKPOINT"] = args.checkpoint
+    os.environ["GSASREC_ONNX"] = args.onnx
+    os.environ["GSASREC_CANDLE"] = args.candle
+    os.environ["GSASREC_DEVICE"] = args.device
+    os.environ["GSASREC_ENGINE"] = args.engine
 
     uvicorn.run("endpoint:app", host="0.0.0.0", port=8081, workers=args.workers)
