@@ -3,9 +3,6 @@ use pyo3::exceptions::PyRuntimeError;
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Value;
 use ort::ep::{self, ExecutionProvider};   // ort 2.x: ep module + trait
-use std::time::Instant;
-use std::fs::OpenOptions;
-use std::io::Write;
 
 use candle_core::{Device, Tensor, DType};
 use candle_nn::VarBuilder;
@@ -81,21 +78,8 @@ impl Recommender {
 
         let inputs = ort::inputs!["input_seq" => input_tensor];
 
-        let start_time = Instant::now();
-
         let outputs = self.session.run(inputs)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-
-        let duration = start_time.elapsed();
-        let latency_ms = duration.as_secs_f64() * 1000.0;
-
-        if let Ok(mut file) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("latencies.csv")
-        {
-            let _ = writeln!(file, "{}", latency_ms);
-        }
 
         let embeddings_tensor = outputs["embedded"].try_extract_tensor::<f32>()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -157,21 +141,9 @@ impl CandleRecommender {
         let input_tensor = Tensor::from_vec(flattened_batch, (batch_size, seq_len), &self.device)
             .map_err(|e| PyRuntimeError::new_err(format!("Tensor error: {}", e)))?;
 
-        let start_time = Instant::now();
 
         let (seq_emb, _attentions) = self.model.forward(&input_tensor, false)
             .map_err(|e| PyRuntimeError::new_err(format!("Forward pass error: {}", e)))?;
-
-        let duration = start_time.elapsed();
-        let latency_ms = duration.as_secs_f64() * 1000.0;
-
-        if let Ok(mut file) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("latencies.csv")
-        {
-            let _ = writeln!(file, "{}", latency_ms);
-        }
 
         let output_vec = seq_emb
             .to_device(&Device::Cpu)

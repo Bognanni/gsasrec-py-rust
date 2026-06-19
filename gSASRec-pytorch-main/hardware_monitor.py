@@ -1,4 +1,5 @@
 import time
+import os
 import csv
 import psutil
 import pynvml
@@ -63,6 +64,7 @@ pynvml.nvmlInit()
 gpu_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
 
 SERVER_PORT = 8081
+NUM_CORES = float(os.environ.get('POD_VCPU_LIMIT', 9))
 fastapi_pid = None
 
 # process linked to the port
@@ -77,7 +79,7 @@ if not fastapi_pid:
     exit(1)
 
 main_process = psutil.Process(fastapi_pid)
-print(f"Monitoring started. Tracking PID FastAPI: {fastapi_pid} (Port {SERVER_PORT}) and all its workers.")
+print(f"Monitoring started. Tracking PID FastAPI: {fastapi_pid} (Port {SERVER_PORT} Num. Cores {NUM_CORES}) and all its workers.")
 
 initial_processes = [main_process] + main_process.children(recursive=True)
 for p in initial_processes:
@@ -108,6 +110,8 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
                 except psutil.NoSuchProcess:
                     pass
 
+            normalized_cpu_util = total_cpu_util / NUM_CORES
+
             # monitoring GPU
             try:
                 gpu_util = pynvml.nvmlDeviceGetUtilizationRates(gpu_handle).gpu
@@ -120,7 +124,7 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
                 vram_mb = 0
 
             timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-            writer.writerow([timestamp, total_cpu_util, total_ram_mb, gpu_util, vram_mb])
+            writer.writerow([timestamp, normalized_cpu_util, total_ram_mb, gpu_util, vram_mb])
             f.flush()
 
             time.sleep(0.5)

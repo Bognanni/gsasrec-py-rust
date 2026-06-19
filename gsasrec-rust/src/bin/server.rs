@@ -34,9 +34,7 @@ struct Args {
 impl Args {
     fn parse() -> Self {
         let raw: Vec<String> = std::env::args().collect();
-        
-        // Impostiamo un valore di default. Di default usa CUDA se disponibile, 
-        // a meno che l'utente non specifichi esplicitamente cpu.
+
         let mut use_cuda = true; 
 
         let mut i = 1;

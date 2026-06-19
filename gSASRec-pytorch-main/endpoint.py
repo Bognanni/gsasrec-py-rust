@@ -10,7 +10,7 @@ import uvicorn
 import gsasrec_rust
 
 from utils import build_model, get_device, load_config
-from latency_test import track_model_latency, get_percentiles
+from latency_test import get_percentiles
 
 MAX_LENGTH = 200
 PADDING_VALUE = 0
@@ -72,6 +72,7 @@ async def lifespan(app: FastAPI):
 
     try:
         device_str = SERVER_CONFIG["device"]
+        server_memory["device"] = device_str
         engine_choice = SERVER_CONFIG["engine"]
 
         if device_str == "cuda" and not torch.cuda.is_available():
@@ -154,7 +155,8 @@ async def get_embeddings_checkpoint(request: EmbeddingsRequest):
         )
 
     model = server_memory["pytorch_model"]
-    device = server_memory["device"]
+    device_str = server_memory["device"]
+    device = torch.device(device_str)
 
     try:
         padded_batch = [
@@ -165,8 +167,7 @@ async def get_embeddings_checkpoint(request: EmbeddingsRequest):
         input_tensor = torch.tensor(padded_batch, dtype=torch.long).to(device)
 
         with torch.no_grad():
-            with track_model_latency():
-                seq_emb, _ = model(input_tensor)
+            seq_emb, _ = model(input_tensor)
             final_embeddings_list = seq_emb.tolist()
 
         # return the formatted result
@@ -195,8 +196,7 @@ async def get_embeddings_onnx(request: EmbeddingsRequest):
         input_array = np.array(padded_batch, dtype=np.int64)
 
         # run the ONNX model
-        with track_model_latency():
-            outputs = session.run(["embedded"], {"input_seq": input_array})
+        outputs = session.run(["embedded"], {"input_seq": input_array})
         final_embeddings_list = outputs[0].tolist()
 
         return EmbeddingsResponse(embeddings=final_embeddings_list)
@@ -286,7 +286,7 @@ if __name__ == "__main__":
                         default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx")
     parser.add_argument("--candle", type=str,
                         default="pre_trained/model.safetensors")
-    parser.add_argument("--workers", type=int, default=1, help="Number of uvicorn workers")
+    parser.add_argument("--workers", type=int, default=15, help="Number of uvicorn workers")
     parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cuda")
     parser.add_argument("--engine", type=str, choices=["pytorch", "onnx_python", "onnx_rust", "candle_rust", "all"], default="pytorch")
     args = parser.parse_args()
@@ -299,4 +299,4 @@ if __name__ == "__main__":
     os.environ["GSASREC_DEVICE"] = args.device
     os.environ["GSASREC_ENGINE"] = args.engine
 
-    uvicorn.run("endpoint:app", host="0.0.0.0", port=8081, workers=args.workers)
+    uvicorn.run("endpoint:app", host="0.0.0.0", port=8080, workers=args.workers)
