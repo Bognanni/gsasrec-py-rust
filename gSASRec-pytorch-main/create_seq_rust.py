@@ -2,9 +2,9 @@ import json
 import random
 
 
-NUM_USERS = 40
-MIN_SEQ_LEN = 5
-MAX_SEQ_LEN = 150
+NUM_USERS = 16
+MIN_SEQ_LEN = 40
+MAX_SEQ_LEN = 40
 MAX_ITEM_ID = 3416
 
 sequences = []
