@@ -63,7 +63,7 @@ def generate_benchmark_plot(csv_filename, plot_filename):
 pynvml.nvmlInit()
 gpu_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
 
-SERVER_PORT = 8081
+SERVER_PORT = 8080
 NUM_CORES = float(os.environ.get('POD_VCPU_LIMIT', 9))
 fastapi_pid = None
 

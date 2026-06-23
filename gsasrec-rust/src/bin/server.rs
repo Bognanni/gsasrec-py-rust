@@ -1,20 +1,13 @@
-// command to do the load test: (-q is the rps, -z is the duration of the test, change anytime)
-// oha -m POST -T application/json -D payload.json -q 50 -z 60s http://127.0.0.1:9090/embeddings
-// to do the warm up before each test:
-// oha -m POST -T application/json -D payload.json -n 30 -c 10 http://127.0.0.1:9090/embeddings > /dev/null
 // command to run the server if we use the CPU:
-// RUSTFLAGS="-C target-cpu=native" cargo run --release --bin server -- --device cpu
+// RAYON_NUM_THREADS=1 OMP_NUM_THREADS=1 RUSTFLAGS="-C target-cpu=native" cargo run --release --bin server -- --device cpu
 // to call the CUDA server:
 // cargo run --release --bin server -- --device cuda
-// to kill processes using the port:
-// fuser -k 9090/tcp and then kill -9 <PID>
 
 use actix_web::{web, App, HttpServer, HttpResponse, Responder, middleware::Logger};
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::Instant;
 
 use gsasrec_rust::config::GsasrecConfig;
 use gsasrec_rust::model::GSASRec;
@@ -22,13 +15,12 @@ use gsasrec_rust::model::GSASRec;
 
 #[derive(Deserialize)]
 struct EmbeddingsRequest {
-    sequences: Vec<Vec<u32>>, 
+    batch_sequences: Vec<Vec<u32>>, 
 }
 
 #[derive(Serialize)]
 struct EmbeddingsResponse {
-    user_embeddings: Vec<Vec<Vec<f32>>>, 
-    time_ms: f32,
+    user_embeddings: Vec<Vec<Vec<f32>>>,
 }
 
 struct Args {
@@ -66,10 +58,8 @@ struct AppState {
 async fn embeddings_endpoint(
     state: web::Data<AppState>,
     req: web::Json<EmbeddingsRequest>,
-) -> impl Responder {
-    let t0 = Instant::now();
-    
-    let sequences = req.sequences.clone();
+) -> impl Responder {    
+    let sequences = req.batch_sequences.clone();
     
     let model = Arc::clone(&state.model);
     let device = state.device.clone();
@@ -113,7 +103,6 @@ async fn embeddings_endpoint(
         Ok(Ok(embs)) => {
             HttpResponse::Ok().json(EmbeddingsResponse {
                 user_embeddings: embs,
-                time_ms: t0.elapsed().as_secs_f32() * 1000.0,
             })
         },
         Ok(Err(err)) => {
@@ -170,15 +159,16 @@ async fn main() -> std::io::Result<()> {
         pad_val: num_items as u32 + 1,
     });
 
-    let bind_address = "0.0.0.0:9090";
+    let bind_address = "0.0.0.0:8080";
     log::info!("Model loaded! Server listening on http://{}", bind_address);
 
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
             .app_data(app_state.clone())
-            .route("/embeddings", web::post().to(embeddings_endpoint))
+            .route("/get_embeddings/pure_rust", web::post().to(embeddings_endpoint))
     })
+    .workers(9)
     .bind(bind_address)?
     .run()
     .await

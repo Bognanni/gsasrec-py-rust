@@ -3,7 +3,7 @@ use pyo3::exceptions::PyRuntimeError;
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Value;
 use ort::ep::{self, ExecutionProvider};   // ort 2.x: ep module + trait
-
+use std::sync::Mutex;
 use candle_core::{Device, Tensor, DType};
 use candle_nn::VarBuilder;
 
@@ -14,7 +14,7 @@ use crate::config::GsasrecConfig;
 // Recommender class that uses ONNX
 #[pyclass]
 pub struct Recommender {
-    session: Session,
+    session: Mutex<Session>,
 }
 
 #[pymethods]
@@ -24,7 +24,11 @@ impl Recommender {
         let mut builder = Session::builder()
             .map_err(|e| PyRuntimeError::new_err(format!("Builder error: {}", e)))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
-            .map_err(|e| PyRuntimeError::new_err(format!("Optimization error: {}", e)))?;
+            .map_err(|e| PyRuntimeError::new_err(format!("Optimization error: {}", e)))?
+            .with_intra_threads(1)
+            .map_err(|e| PyRuntimeError::new_err(format!("Intra-threads error: {}", e)))?
+            .with_inter_threads(1)
+            .map_err(|e| PyRuntimeError::new_err(format!("Inter-threads error: {}", e)))?;
 
         // ort 2.x: use ep::CUDA and the ExecutionProvider trait.
         // is_available() checks whether the ORT binary was compiled with CUDA support.
@@ -57,34 +61,38 @@ impl Recommender {
             .commit_from_file(model_path)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to load model: {}", e)))?;
 
-        Ok(Recommender { session })
+        Ok(Recommender { session: Mutex::new(session) })
     }
 
-    pub fn get_embeddings(&mut self, padded_batch: Vec<Vec<i64>>) -> PyResult<Vec<f32>> {
-        let batch_size = padded_batch.len();
-        if batch_size == 0 {
-            return Ok(Vec::new());
-        }
-        let max_length = padded_batch[0].len();
+    pub fn get_embeddings(&self, py: Python<'_>, padded_batch: Vec<Vec<i64>>) -> PyResult<Vec<f32>> {
+        // release the GIL
+        py.allow_threads(move || {
+            let batch_size = padded_batch.len();
+            if batch_size == 0 {
+                return Ok(Vec::new());
+            }
+            let max_length = padded_batch[0].len();
 
-        let mut flattened_batch = Vec::with_capacity(batch_size * max_length);
-        for sequence in padded_batch {
-            flattened_batch.extend(sequence);
-        }
+            let mut flattened_batch = Vec::with_capacity(batch_size * max_length);
+            for sequence in padded_batch {
+                flattened_batch.extend(sequence);
+            }
 
-        let input_shape = vec![batch_size, max_length];
-        let input_tensor = Value::from_array((input_shape, flattened_batch))
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let input_shape = vec![batch_size, max_length];
+            let input_tensor = Value::from_array((input_shape, flattened_batch))
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
-        let inputs = ort::inputs!["input_seq" => input_tensor];
+            let inputs = ort::inputs!["input_seq" => input_tensor];
 
-        let outputs = self.session.run(inputs)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let mut session_lock = self.session.lock().unwrap();
+            let outputs = session_lock.run(inputs)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
-        let embeddings_tensor = outputs["embedded"].try_extract_tensor::<f32>()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let embeddings_tensor = outputs["embedded"].try_extract_tensor::<f32>()
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
-        Ok(embeddings_tensor.1.to_vec())
+            Ok(embeddings_tensor.1.to_vec())
+        })
     }
 }
 
@@ -124,35 +132,36 @@ impl CandleRecommender {
         Ok(CandleRecommender { model, device })
     }
 
-    pub fn get_embeddings(&mut self, padded_batch: Vec<Vec<i64>>) -> PyResult<Vec<f32>> {
-        let batch_size = padded_batch.len();
-        if batch_size == 0 {
-            return Ok(Vec::new());
-        }
-        let seq_len = padded_batch[0].len();
-
-        let mut flattened_batch = Vec::with_capacity(batch_size * seq_len);
-        for sequence in padded_batch {
-            for &item in &sequence {
-                flattened_batch.push(item as u32);
+    pub fn get_embeddings(&self, py: Python<'_>, padded_batch: Vec<Vec<i64>>) -> PyResult<Vec<f32>> {
+        py.allow_threads(move || {
+            let batch_size = padded_batch.len();
+            if batch_size == 0 {
+                return Ok(Vec::new());
             }
-        }
+            let seq_len = padded_batch[0].len();
 
-        let input_tensor = Tensor::from_vec(flattened_batch, (batch_size, seq_len), &self.device)
-            .map_err(|e| PyRuntimeError::new_err(format!("Tensor error: {}", e)))?;
+            let mut flattened_batch = Vec::with_capacity(batch_size * seq_len);
+            for sequence in padded_batch {
+                for &item in &sequence {
+                    flattened_batch.push(item as u32);
+                }
+            }
 
+            let input_tensor = Tensor::from_vec(flattened_batch, (batch_size, seq_len), &self.device)
+                .map_err(|e| PyRuntimeError::new_err(format!("Tensor error: {}", e)))?;
 
-        let (seq_emb, _attentions) = self.model.forward(&input_tensor, false)
-            .map_err(|e| PyRuntimeError::new_err(format!("Forward pass error: {}", e)))?;
+            let (seq_emb, _attentions) = self.model.forward(&input_tensor, false)
+                .map_err(|e| PyRuntimeError::new_err(format!("Forward pass error: {}", e)))?;
 
-        let output_vec = seq_emb
-            .to_device(&Device::Cpu)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
-            .flatten_all()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
-            .to_vec1::<f32>()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let output_vec = seq_emb
+                .to_device(&Device::Cpu)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+                .flatten_all()
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+                .to_vec1::<f32>()
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
-        Ok(output_vec)
+            Ok(output_vec)
+        })
     }
 }
