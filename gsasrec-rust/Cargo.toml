@@ -19,8 +19,9 @@ path = "src/infer.rs"
 [dependencies]
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "download-binaries", "cuda", "tls-rustls", "copy-dylibs"] }
 ndarray = { version = "0.17.2", features = ["std"] }
-candle-core = { version = "0.8.2", features = ["cuda"] }
-candle-nn  = { version = "0.8.2", features = ["cuda"] }
+candle-core = { version = "0.8.2", features = ["cuda", "mkl"] }
+candle-nn  = { version = "0.8.2", features = ["cuda", "mkl"] }
+num_cpus = "1.16.0"
 actix-web = "4.4"
 env_logger = "0.11"
 log = "0.4"
