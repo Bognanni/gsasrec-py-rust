@@ -5,10 +5,40 @@ use std::time::Instant;
 use gsasrec_rust::config::GsasrecConfig;
 use gsasrec_rust::model::GSASRec;
 
+struct Args {
+    use_cuda: bool,
+}
+
+impl Args {
+    fn parse() -> Self {
+        let raw: Vec<String> = std::env::args().collect();
+
+        let mut use_cuda = true; 
+
+        let mut i = 1;
+        while i < raw.len() {
+            if raw[i] == "--device" && i + 1 < raw.len() {
+                use_cuda = raw[i+1].trim().to_lowercase() == "cuda";
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+
+        Self { use_cuda }
+    }
+}
+
 fn main() {
     println!("Start pure latency test.");
 
-    let device = Device::cuda_if_available(0).expect("Critical error: Unable to initialize CUDA/CPU device");
+    let args = Args::parse();
+    let device = if args.use_cuda {
+        Device::cuda_if_available(0).expect("Critical error: Unable to initialize CUDA/CPU device")
+    } else {
+        Device::Cpu
+    };
+    println!("Using device: {:?}", device);
     let model_path = "model.safetensors";
     let num_items = 3416;
     let sequence_length = 200;
@@ -22,7 +52,7 @@ fn main() {
     config.sequence_length = sequence_length;
     let model = GSASRec::new(vb, config).expect("Critical error: Unable to create model");
 
-    let batch_size = 40;
+    let batch_size = 16;
     
     let flat_dummy_data = vec![1u32; batch_size * sequence_length];
     
@@ -46,10 +76,13 @@ fn main() {
     for _ in 0..iterations {
         let t0 = Instant::now();
         
-        let (_seq_emb, _attentions) = model.forward(&input_tensor, false).unwrap();
+        let (seq_emb, attentions) = model.forward(&input_tensor, false).unwrap();
 
         device.synchronize().expect("Error during CUDA synchronization");
         times_ms.push(t0.elapsed().as_secs_f64() * 1000.0);
+
+        std::hint::black_box(seq_emb);
+        std::hint::black_box(attentions);
     }
 
     let total_elapsed = total_start.elapsed().as_secs_f64();

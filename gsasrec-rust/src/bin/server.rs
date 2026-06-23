@@ -2,7 +2,11 @@
 // oha -m POST -T application/json -D payload.json -q 50 -z 60s http://127.0.0.1:9090/embeddings
 // to do the warm up before each test:
 // oha -m POST -T application/json -D payload.json -n 30 -c 10 http://127.0.0.1:9090/embeddings > /dev/null
-// to kill processes using the port
+// command to run the server if we use the CPU:
+// RUSTFLAGS="-C target-cpu=native" cargo run --release --bin server -- --device cpu
+// to call the CUDA server:
+// cargo run --release --bin server -- --device cuda
+// to kill processes using the port:
 // fuser -k 9090/tcp and then kill -9 <PID>
 
 use actix_web::{web, App, HttpServer, HttpResponse, Responder, middleware::Logger};
