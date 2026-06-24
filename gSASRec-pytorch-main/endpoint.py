@@ -1,7 +1,6 @@
 import os
 import torch
 import numpy as np
-import onnxruntime as ort
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
@@ -89,6 +88,7 @@ async def lifespan(app: FastAPI):
 
         # --- ONNX PYTHON ---
         if engine_choice in ["onnx_python", "all"]:
+            import onnxruntime as ort
             onnx_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if device_str == "cuda" else [
                 'CPUExecutionProvider']
 
@@ -135,7 +135,7 @@ async def health_check_endpoint():
     return {"status": "ok"}
 
 
-@app.post("/get_embeddings/checkpoint", response_model=EmbeddingsResponse)
+@app.post("/get_embeddings/pytorch", response_model=EmbeddingsResponse)
 def get_embeddings_checkpoint(request: EmbeddingsRequest):
     if "pytorch_model" not in server_memory:
         raise HTTPException(status_code=500, detail="PyTorch model missing!")
@@ -159,7 +159,7 @@ def get_embeddings_checkpoint(request: EmbeddingsRequest):
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
 
-@app.post("/get_embeddings/onnx", response_model=EmbeddingsResponse)
+@app.post("/get_embeddings/onnx_python", response_model=EmbeddingsResponse)
 def get_embeddings_onnx(request: EmbeddingsRequest):
     if "onnx_model" not in server_memory:
         raise HTTPException(status_code=500, detail="ONNX model missing!")
