@@ -1,5 +1,6 @@
 import os
 import torch
+import asyncio
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -135,8 +136,16 @@ async def health_check_endpoint():
     return {"status": "ok"}
 
 
+def inference_pytorch(model, device, padded_batch):
+    """It does only the inference separately"""
+    input_tensor = torch.tensor(padded_batch, dtype=torch.long).to(device)
+    with torch.no_grad():
+        seq_emb, _ = model(input_tensor)
+        return seq_emb.tolist()
+
+
 @app.post("/get_embeddings/pytorch", response_model=EmbeddingsResponse)
-def get_embeddings_checkpoint(request: EmbeddingsRequest):
+async def get_embeddings_checkpoint(request: EmbeddingsRequest):
     if "pytorch_model" not in server_memory:
         raise HTTPException(status_code=500, detail="PyTorch model missing!")
 
@@ -148,19 +157,28 @@ def get_embeddings_checkpoint(request: EmbeddingsRequest):
             ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
             for seq in request.batch_sequences
         ]
-        input_tensor = torch.tensor(padded_batch, dtype=torch.long).to(device)
-
-        with torch.no_grad():
-            seq_emb, _ = model(input_tensor)
-            final_embeddings_list = seq_emb.tolist()
+        final_embeddings_list = await asyncio.to_thread(
+            inference_pytorch,
+            model,
+            device,
+            padded_batch
+        )
 
         return EmbeddingsResponse(embeddings=final_embeddings_list)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
 
+def inference_onnx(session, padded_batch):
+    input_array = np.array(padded_batch, dtype=np.int64)
+
+    outputs = session.run(["embedded"], {"input_seq": input_array})
+
+    return outputs[0].tolist()
+
+
 @app.post("/get_embeddings/onnx_python", response_model=EmbeddingsResponse)
-def get_embeddings_onnx(request: EmbeddingsRequest):
+async def get_embeddings_onnx(request: EmbeddingsRequest):
     if "onnx_model" not in server_memory:
         raise HTTPException(status_code=500, detail="ONNX model missing!")
 
@@ -171,18 +189,29 @@ def get_embeddings_onnx(request: EmbeddingsRequest):
             ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
             for seq in request.batch_sequences
         ]
-        input_array = np.array(padded_batch, dtype=np.int64)
-
-        outputs = session.run(["embedded"], {"input_seq": input_array})
-        final_embeddings_list = outputs[0].tolist()
+        final_embeddings_list = await asyncio.to_thread(
+            inference_onnx,
+            session,
+            padded_batch
+        )
 
         return EmbeddingsResponse(embeddings=final_embeddings_list)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error ONNX: {str(e)}")
 
 
+def inference_onnx_rust(rust_model, padded_batch, max_length):
+    flat_embeddings = rust_model.get_embeddings(padded_batch)
+
+    batch_size = len(padded_batch)
+    arr = np.array(flat_embeddings, dtype=np.float32)
+    reshaped_batch = arr.reshape(batch_size, max_length, -1).tolist()
+
+    return reshaped_batch
+
+
 @app.post("/get_embeddings/onnx_rust", response_model=EmbeddingsResponse)
-def get_embeddings_onnx_rust(request: EmbeddingsRequest):
+async def get_embeddings_onnx_rust(request: EmbeddingsRequest):
     if "rust_model" not in server_memory:
         raise HTTPException(status_code=500, detail="Rust ONNX model missing!")
 
@@ -193,18 +222,30 @@ def get_embeddings_onnx_rust(request: EmbeddingsRequest):
             ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
             for seq in request.batch_sequences
         ]
-        flat_embeddings = rust_model.get_embeddings(padded_batch)
-        batch_size = len(padded_batch)
-        arr = np.array(flat_embeddings, dtype=np.float32)
-        reshaped_batch = arr.reshape(batch_size, MAX_LENGTH, -1).tolist()
+        reshaped_batch = await asyncio.to_thread(
+            inference_onnx_rust,
+            rust_model,
+            padded_batch,
+            MAX_LENGTH
+        )
 
         return EmbeddingsResponse(embeddings=reshaped_batch)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error Rust ONNX model: {str(e)}")
 
 
+def inference_candle(candle_model, padded_batch, max_length):
+    flat_embeddings = candle_model.get_embeddings(padded_batch)
+
+    batch_size = len(padded_batch)
+    arr = np.array(flat_embeddings, dtype=np.float32)
+    reshaped_batch = arr.reshape(batch_size, max_length, -1).tolist()
+
+    return reshaped_batch
+
+
 @app.post("/get_embeddings/candle_rust", response_model=EmbeddingsResponse)
-def get_embeddings_candle_rust(request: EmbeddingsRequest):
+async def get_embeddings_candle_rust(request: EmbeddingsRequest):
     if "candle_rust_model" not in server_memory:
         raise HTTPException(status_code=500, detail="Rust Candle model missing!")
 
@@ -215,10 +256,12 @@ def get_embeddings_candle_rust(request: EmbeddingsRequest):
             ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
             for seq in request.batch_sequences
         ]
-        flat_embeddings = candle_model.get_embeddings(padded_batch)
-        batch_size = len(padded_batch)
-        arr = np.array(flat_embeddings, dtype=np.float32)
-        reshaped_batch = arr.reshape(batch_size, MAX_LENGTH, -1).tolist()
+        reshaped_batch = await asyncio.to_thread(
+            inference_candle,
+            candle_model,
+            padded_batch,
+            MAX_LENGTH
+        )
 
         return EmbeddingsResponse(embeddings=reshaped_batch)
     except Exception as e:
