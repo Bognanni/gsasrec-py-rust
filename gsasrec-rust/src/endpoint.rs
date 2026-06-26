@@ -6,6 +6,10 @@ use ort::ep::{self, ExecutionProvider};   // ort 2.x: ep module + trait
 use std::sync::Mutex;
 use candle_core::{Device, Tensor, DType};
 use candle_nn::VarBuilder;
+// if you need measure pure inference
+// use std::time::Instant;
+// use std::fs::OpenOptions;
+// use std::io::Write;
 
 use crate::model::GSASRec;
 use crate::config::GsasrecConfig;
@@ -85,8 +89,22 @@ impl Recommender {
             let inputs = ort::inputs!["input_seq" => input_tensor];
 
             let mut session_lock = self.session.lock().unwrap();
+
+            // let start_time = Instant::now();
+
             let outputs = session_lock.run(inputs)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+
+            // let duration = start_time.elapsed();
+            // let latency_ms = duration.as_secs_f64() * 1000.0;
+
+            // if let Ok(mut file) = OpenOptions::new()
+            //     .create(true)
+            //     .append(true)
+            //     .open("latencies.csv")
+            // {
+            //     let _ = writeln!(file, "{}", latency_ms);
+            // }
 
             let embeddings_tensor = outputs["embedded"].try_extract_tensor::<f32>()
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -150,8 +168,23 @@ impl CandleRecommender {
             let input_tensor = Tensor::from_vec(flattened_batch, (batch_size, seq_len), &self.device)
                 .map_err(|e| PyRuntimeError::new_err(format!("Tensor error: {}", e)))?;
 
+            // let start_time = std::time::Instant::now();
+
             let (seq_emb, _attentions) = self.model.forward(&input_tensor, false)
                 .map_err(|e| PyRuntimeError::new_err(format!("Forward pass error: {}", e)))?;
+
+            // self.device.synchronize().map_err(|e| PyRuntimeError::new_err(format!("CUDA sync error: {}", e)))?;
+
+            // let duration = start_time.elapsed();
+            // let latency_ms = duration.as_secs_f64() * 1000.0;
+
+            // if let Ok(mut file) = OpenOptions::new()
+            //     .create(true)
+            //     .append(true)
+            //     .open("latencies.csv")
+            // {
+            //     let _ = writeln!(file, "{}", latency_ms);
+            // }
 
             let output_vec = seq_emb
                 .to_device(&Device::Cpu)
