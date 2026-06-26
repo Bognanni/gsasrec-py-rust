@@ -141,7 +141,7 @@ def inference_pytorch(model, device, padded_batch):
     input_tensor = torch.tensor(padded_batch, dtype=torch.long).to(device)
     with torch.no_grad():
         seq_emb, _ = model(input_tensor)
-        return seq_emb.tolist()
+    return seq_emb.tolist()
 
 
 @app.post("/get_embeddings/pytorch", response_model=EmbeddingsResponse)
