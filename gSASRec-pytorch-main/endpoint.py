@@ -2,6 +2,11 @@
 # end profiling after the test with curl -X POST http://localhost:8080/debug/stop_profiling
 
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import torch
 import asyncio
 import numpy as np
@@ -205,6 +210,7 @@ async def lifespan(app: FastAPI):
             # limit the internal PyTorch threads
             # if device_str == "cpu":
             torch.set_num_threads(1)
+            torch.set_num_interop_threads(1)
 
             server_memory["pytorch_model"] = model
             print("GSASRec PyTorch model loaded!")
@@ -225,6 +231,7 @@ async def lifespan(app: FastAPI):
             opts = ort.SessionOptions()
             opts.intra_op_num_threads = 1
             opts.inter_op_num_threads = 1
+            opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 
             onnx_session = ort.InferenceSession(SERVER_CONFIG["onnx_model_path"], sess_options=opts,
                                                 providers=onnx_providers)

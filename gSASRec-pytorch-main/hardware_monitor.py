@@ -81,8 +81,11 @@ if not fastapi_pid:
 main_process = psutil.Process(fastapi_pid)
 print(f"Monitoring started. Tracking PID FastAPI: {fastapi_pid} (Port {SERVER_PORT} Num. Cores {NUM_CORES}) and all its workers.")
 
+tracked_processes = {}
 initial_processes = [main_process] + main_process.children(recursive=True)
+
 for p in initial_processes:
+    tracked_processes[p.pid] = p
     try:
         p.cpu_percent(interval=None)
     except psutil.NoSuchProcess:
@@ -95,7 +98,8 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
     try:
         while True:
             try:
-                current_processes = [main_process] + main_process.children(recursive=True)
+                children = main_process.children(recursive=True)
+                current_pids = [main_process.pid] + [p.pid for p in children]
             except psutil.NoSuchProcess:
                 print("\nFastAPI main server closed. Ending monitoring.")
                 break
@@ -103,12 +107,24 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
             total_cpu_util = 0.0
             total_ram_mb = 0.0
 
-            for p in current_processes:
-                try:
-                    total_cpu_util += p.cpu_percent(interval=None)
-                    total_ram_mb += p.memory_info().rss / (1024 * 1024)
-                except psutil.NoSuchProcess:
-                    pass
+            for p in children:
+                if p.pid not in tracked_processes:
+                    tracked_processes[p.pid] = p
+                    try:
+                        p.cpu_percent(interval=None)
+                    except psutil.NoSuchProcess:
+                        pass
+
+            for pid in list(tracked_processes.keys()):
+                if pid in current_pids:
+                    try:
+                        proc = tracked_processes[pid]
+                        total_cpu_util += proc.cpu_percent(interval=None)
+                        total_ram_mb += proc.memory_info().rss / (1024 * 1024)
+                    except psutil.NoSuchProcess:
+                        pass
+                else:
+                    del tracked_processes[pid]
 
             normalized_cpu_util = total_cpu_util / NUM_CORES
 
