@@ -16,11 +16,20 @@ path = "src/main.rs"
 name = "infer"
 path = "src/infer.rs"
 
+[features]
+default = ["cuda", "mkl"]
+
+cuda = ["ort/cuda", "candle-core/cuda", "candle-nn/cuda"]
+
+mkl = ["candle-core/mkl", "candle-nn/mkl"]
+
 [dependencies]
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "download-binaries", "cuda", "tls-rustls", "copy-dylibs"] }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "download-binaries", "tls-rustls", "copy-dylibs"] }
 ndarray = { version = "0.17.2", features = ["std"] }
-candle-core = { version = "0.8.2", features = ["cuda", "mkl"] }
-candle-nn  = { version = "0.8.2", features = ["cuda", "mkl"] }
+
+candle-core = { version = "0.8.2" }
+candle-nn   = { version = "0.8.2" }
+
 num_cpus = "1.16.0"
 actix-web = "4.4"
 env_logger = "0.11"
