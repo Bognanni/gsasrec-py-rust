@@ -19,3 +19,4 @@ pandas
 nvidia-ml-py
 openpyxl
 safetensors
+orjson

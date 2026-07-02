@@ -64,22 +64,43 @@ pynvml.nvmlInit()
 gpu_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
 
 SERVER_PORT = 8080
-NUM_CORES = float(os.environ.get('POD_VCPU_LIMIT', 9))
-fastapi_pid = None
+NUM_CORES = float(os.environ.get('POD_VCPU_LIMIT', 1))
 
-# process linked to the port
+found_pid = None
 for conn in psutil.net_connections(kind='inet'):
-    if conn.laddr.port == SERVER_PORT and conn.status == 'LISTEN':
-        fastapi_pid = conn.pid
+    # check if the process found is listening the server port
+    if conn.laddr.port == SERVER_PORT and conn.status == 'LISTEN' and conn.pid:
+        found_pid = conn.pid
         break
 
-if not fastapi_pid:
-    print(f"No process listening on the {SERVER_PORT}.")
+if not found_pid:
+    print(f"No process listening on port {SERVER_PORT}.")
     print("The server must be running.")
     exit(1)
 
-main_process = psutil.Process(fastapi_pid)
-print(f"Monitoring started. Tracking PID FastAPI: {fastapi_pid} (Port {SERVER_PORT} Num. Cores {NUM_CORES}) and all its workers.")
+p = psutil.Process(found_pid)
+
+parent = p.parent()
+
+# standard names for master processes
+server_names = ['python', 'gunicorn', 'uvicorn']
+
+if len(p.children()) > 0:
+    # if the process has children is the master
+    main_process = p
+
+elif parent is not None and any(name in parent.name().lower() for name in server_names):
+    # the process doesn't have children and the parent has a standard names -> it is one of the worker
+    main_process = parent
+
+else:
+    # the process doesn't have children and the parent is bash/zsh/systemd -> it is a single worker (--workers 1)
+    main_process = p
+
+fastapi_pid = main_process.pid
+print(
+    f"Monitoring started. Tracking True Master PID: {fastapi_pid} (Port {SERVER_PORT} Num. Cores {NUM_CORES}) and all its workers.")
+# ---------------------------------------------------
 
 tracked_processes = {}
 initial_processes = [main_process] + main_process.children(recursive=True)
@@ -87,6 +108,7 @@ initial_processes = [main_process] + main_process.children(recursive=True)
 for p in initial_processes:
     tracked_processes[p.pid] = p
     try:
+        # cpu percentage, the first time the function is called it returns 0, then the real value
         p.cpu_percent(interval=None)
     except psutil.NoSuchProcess:
         pass
@@ -98,6 +120,7 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
     try:
         while True:
             try:
+                # checks if there are new children and adds the pid
                 children = main_process.children(recursive=True)
                 current_pids = [main_process.pid] + [p.pid for p in children]
             except psutil.NoSuchProcess:
@@ -106,6 +129,8 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
 
             total_cpu_util = 0.0
             total_ram_mb = 0.0
+
+            print("-" * 30)
 
             for p in children:
                 if p.pid not in tracked_processes:
@@ -119,7 +144,15 @@ with open('hardware_metrics.csv', 'w', newline='') as f:
                 if pid in current_pids:
                     try:
                         proc = tracked_processes[pid]
-                        total_cpu_util += proc.cpu_percent(interval=None)
+
+                        # %cpu for that single worker
+                        cpu_single_worker = proc.cpu_percent(interval=None)
+
+                        process_type = "Master" if pid == fastapi_pid else "Worker"
+                        print(f"{process_type} PID {pid}: {cpu_single_worker:.1f}% CPU")
+
+                        # adds all the %cpu
+                        total_cpu_util += cpu_single_worker
                         total_ram_mb += proc.memory_info().rss / (1024 * 1024)
                     except psutil.NoSuchProcess:
                         pass
