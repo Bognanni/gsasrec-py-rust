@@ -1,0 +1,23 @@
+{
+  "endpoint": {
+    "url": "http://localhost:8080",
+    "client": {
+      "connect_timeout": 30,
+      "read_timeout": 60
+    }
+  },
+  "headers": {},
+  "request": {
+    "path": "/get_embeddings/pytorch",
+    "sequence_length": 40
+  },
+  "load_test": {
+    "target_rps": [75, 100],
+    "duration_seconds": 60,
+    "num_clients": 200,
+    "num_warmup_requests": 30,
+    "cooldown_seconds": 5,
+    "log_every": 1.0,
+    "skip_first_n_requests": 0
+  }
+}
