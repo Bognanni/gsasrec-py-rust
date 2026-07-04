@@ -12,21 +12,16 @@ crate-type = ["cdylib", "rlib"]
 name = "gsasrec_rust"
 path = "src/main.rs"
 
-[[bin]]
-name = "infer"
-path = "src/infer.rs"
-
 [features]
-default = ["cuda", "mkl"]
+default = []
 
 cuda = ["ort/cuda", "candle-core/cuda", "candle-nn/cuda"]
-
 mkl = ["candle-core/mkl", "candle-nn/mkl"]
 
 [dependencies]
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "download-binaries", "tls-rustls", "copy-dylibs"] }
-ndarray = { version = "0.17.2", features = ["std"] }
+ort = { version = "=2.0.0-rc.12", features = ["std", "ndarray", "download-binaries", "tls-rustls", "copy-dylibs"] }
 
+ndarray = { version = "0.17.2", features = ["std"] }
 candle-core = { version = "0.8.2" }
 candle-nn   = { version = "0.8.2" }
 
