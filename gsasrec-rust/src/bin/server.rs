@@ -1,9 +1,9 @@
 // Commands to start the server based on build context:
 // 1. CPU-only build (standard):
-//    cargo run --release --bin infer -- --device cpu --engine onnx
+//    cargo run --release --bin server -- --device cpu --engine onnx
 //
 // 2. GPU-enabled build (when enabling --features cuda):
-//    cargo run --release --bin infer --features cuda -- --device cuda --engine onnx
+//    cargo run --release --bin server --features cuda -- --device cuda --engine onnx
 
 use actix_web::{web, App, HttpServer, HttpResponse, Responder, middleware::Logger};
 use candle_core::{DType, Device as CandleDevice, Tensor};
@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 
 // Conditional import: include ep and ExecutionProvider only if compiling with the "cuda" feature
 #[cfg(feature = "cuda")]
-use ort::{ep, ExecutionProvider};
+use ort::ep::{self, ExecutionProvider};
 
 use gsasrec_rust::config::GsasrecConfig;
 use gsasrec_rust::model::GSASRec;
@@ -242,7 +242,7 @@ async fn main() -> std::io::Result<()> {
             ModelBackend::Candle(Arc::new(model))
         }
         EngineType::Onnx => {
-            let model_path = "gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx";
+            let model_path = "models/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx";
             log::info!("Loading ONNX backend from {}...", model_path);
             
             // Initialize global ONNX Runtime environment
