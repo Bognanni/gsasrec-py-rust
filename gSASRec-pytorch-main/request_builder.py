@@ -60,19 +60,11 @@ def create_payload(config: dict) -> dict:
 
     # take the sequence length from the config (how many real items the user interacted with)
     sequence_length = int(req.get('sequence_length', 40))
-    # size of the batch that we can change if we want
-    batch_size = 16
+    batch_size = int(req.get('batch_size', 1))
 
-    # multiple sequences (one for each fake user)
-    batch_of_users = []
-    for _ in range(batch_size):
-        user_sequence = _sequence(sequence_length)
-        batch_of_users.append(user_sequence)
-
+    batch_of_users = [_sequence(sequence_length) for _ in range(batch_size)]
     # return the fully packed batch
-    return {
-        'batch_sequences': batch_of_users
-    }
+    return {'batch_sequences': batch_of_users}
 
 
 def get_headers(config: dict) -> dict:

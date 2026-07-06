@@ -32,6 +32,11 @@ import io
 MAX_LENGTH = 200
 PADDING_VALUE = 0
 
+def pad_batch(sequences):
+    clipped = [seq[-MAX_LENGTH:] for seq in sequences]
+    target = max((len(s) for s in clipped), default=1)
+    return [([PADDING_VALUE] * (target - len(s))) + s for s in clipped]
+
 # --- Dynamic batching configuration ---
 # MAX_BATCH_SIZE: hard cap on how many requests get merged into a single
 #   forward pass. Keep it a multiple of typical per-request batch sizes
@@ -323,6 +328,7 @@ def inference_pytorch_sync(model, device, padded_batch):
     input_tensor = torch.tensor(padded_batch, dtype=torch.long).to(device)
     with torch.no_grad():
         seq_emb, _ = model(input_tensor)
+        seq_emb = seq_emb[:, -1, :]
         if device.type == "cuda":
             torch.cuda.synchronize()
     return seq_emb.cpu().numpy()
@@ -335,10 +341,8 @@ async def get_embeddings_checkpoint(request: EmbeddingsRequest):
     batcher: DynamicBatcher = server_memory["pytorch_batcher"]
 
     try:
-        padded_batch = [
-            ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
-            for seq in request.batch_sequences
-        ]
+        padded_batch = pad_batch(request.batch_sequences)
+
         final_embeddings_array = await batcher.submit(padded_batch)
         return Response(
             content=orjson.dumps(
@@ -355,8 +359,9 @@ def inference_onnx(session, padded_batch):
     input_array = np.array(padded_batch, dtype=np.int64)
 
     outputs = session.run(["embedded"], {"input_seq": input_array})
+    outputs = outputs[0][:, -1, :]
 
-    return outputs[0]
+    return outputs
 
 
 @app.post("/get_embeddings/onnx_python")
@@ -367,10 +372,7 @@ async def get_embeddings_onnx(request: EmbeddingsRequest):
     batcher: DynamicBatcher = server_memory["onnx_python_batcher"]
 
     try:
-        padded_batch = [
-            ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
-            for seq in request.batch_sequences
-        ]
+        padded_batch = pad_batch(request.batch_sequences)
         final_embeddings_array = await batcher.submit(padded_batch)
 
         return Response(
@@ -389,7 +391,7 @@ def inference_onnx_rust(rust_model, padded_batch, max_length):
 
     batch_size = len(padded_batch)
     arr = np.array(flat_embeddings, dtype=np.float32)
-    reshaped_batch = arr.reshape(batch_size, max_length, -1)
+    reshaped_batch = arr.reshape(batch_size, -1)
 
     return reshaped_batch
 
@@ -402,10 +404,7 @@ async def get_embeddings_onnx_rust(request: EmbeddingsRequest):
     batcher: DynamicBatcher = server_memory["onnx_rust_batcher"]
 
     try:
-        padded_batch = [
-            ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
-            for seq in request.batch_sequences
-        ]
+        padded_batch = pad_batch(request.batch_sequences)
         reshaped_batch = await batcher.submit(padded_batch)
 
         return Response(
@@ -424,7 +423,7 @@ def inference_candle(candle_model, padded_batch, max_length):
 
     batch_size = len(padded_batch)
     arr = np.array(flat_embeddings, dtype=np.float32)
-    reshaped_batch = arr.reshape(batch_size, max_length, -1)
+    reshaped_batch = arr.reshape(batch_size, -1)
 
     return reshaped_batch
 
@@ -437,10 +436,7 @@ async def get_embeddings_candle_rust(request: EmbeddingsRequest):
     batcher: DynamicBatcher = server_memory["candle_rust_batcher"]
 
     try:
-        padded_batch = [
-            ([PADDING_VALUE] * (MAX_LENGTH - len(seq[-MAX_LENGTH:]))) + seq[-MAX_LENGTH:]
-            for seq in request.batch_sequences
-        ]
+        padded_batch = pad_batch(request.batch_sequences)
         reshaped_batch = await batcher.submit(padded_batch)
 
         return Response(

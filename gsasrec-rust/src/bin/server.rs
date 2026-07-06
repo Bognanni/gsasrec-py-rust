@@ -84,10 +84,7 @@ struct AppState {
     pad_val: u32,
 }
 
-async fn embeddings_endpoint(
-    state: web::Data<AppState>,
-    req: web::Json<EmbeddingsRequest>,
-) -> impl Responder {
+async fn embeddings_endpoint(state: web::Data<AppState>, req: web::Json<EmbeddingsRequest>,) -> impl Responder {
     let sequences = req.batch_sequences.clone();
     let seq_len = state.sequence_length;
     let pad_val = state.pad_val;

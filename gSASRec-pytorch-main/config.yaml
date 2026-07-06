@@ -17,6 +17,7 @@ request:
   path: "/get_embeddings/pytorch"
 
   sequence_length: 40
+  batch_size: 1
   # ids_csv: "./item_ids.csv"    # optional — one ID per row, header skipped
 
 load_test:

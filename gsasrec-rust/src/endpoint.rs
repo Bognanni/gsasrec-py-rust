@@ -4,7 +4,7 @@ use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Value;
 use ort::ep::{self, ExecutionProvider};   // ort 2.x: ep module + trait
 use std::sync::Mutex;
-use candle_core::{Device, Tensor, DType};
+use candle_core::{Device, Tensor, DType, IndexOp};
 use candle_nn::VarBuilder;
 // if you need measure pure inference
 // use std::time::Instant;
@@ -106,10 +106,25 @@ impl Recommender {
             //     let _ = writeln!(file, "{}", latency_ms);
             // }
 
-            let embeddings_tensor = outputs["embedded"].try_extract_tensor::<f32>()
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let (shape, data) = outputs["embedded"]
+            .try_extract_tensor::<f32>()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
-            Ok(embeddings_tensor.1.to_vec())
+            // identify the embedding dimension from the last dimension of the output shape
+            let embedding_dim = *shape.last().unwrap() as usize;
+
+            // vector to store the last token embeddings: [batch_size * embedding_dim]
+            let mut last_token_embeddings = Vec::with_capacity(batch_size * embedding_dim);
+
+            for b in 0..batch_size {
+                // starting index for the last token embedding of the b-th sequence
+                let start_idx = (b * max_length + (max_length - 1)) * embedding_dim;
+                let end_idx = start_idx + embedding_dim;
+
+                last_token_embeddings.extend_from_slice(&data[start_idx..end_idx]);
+            }
+
+            Ok(last_token_embeddings)
         })
     }
 }
@@ -186,7 +201,13 @@ impl CandleRecommender {
             //     let _ = writeln!(file, "{}", latency_ms);
             // }
 
-            let output_vec = seq_emb
+            // select only the last token embedding for each sequence in the batch
+            let last_token_emb = seq_emb
+                .i((.., seq_len - 1, ..))
+                .map_err(|e| PyRuntimeError::new_err(format!("Slicing error: {}", e)))?;
+
+            // flatten only the last token embeddings and convert to Vec<f32>
+            let output_vec = last_token_emb
                 .to_device(&Device::Cpu)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
                 .flatten_all()
