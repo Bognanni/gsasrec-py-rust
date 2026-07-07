@@ -2,6 +2,7 @@
 # end profiling after the test with curl -X POST http://localhost:8080/debug/stop_profiling
 
 import os
+
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -28,14 +29,15 @@ import cProfile
 import pstats
 import io
 
-
 MAX_LENGTH = 200
 PADDING_VALUE = 0
+
 
 def pad_batch(sequences):
     clipped = [seq[-MAX_LENGTH:] for seq in sequences]
     target = max((len(s) for s in clipped), default=1)
     return [([PADDING_VALUE] * (target - len(s))) + s for s in clipped]
+
 
 # --- Dynamic batching configuration ---
 # MAX_BATCH_SIZE: hard cap on how many requests get merged into a single
@@ -44,13 +46,13 @@ def pad_batch(sequences):
 # MAX_WAIT_SECONDS: how long the batcher waits for more requests to arrive
 #   before firing whatever it has collected so far. This bounds the extra
 #   latency a single request can incur waiting to be batched with others.
-MAX_BATCH_SIZE = int(os.environ.get("GSASREC_MAX_BATCH_SIZE", "32"))
-MAX_WAIT_SECONDS = float(os.environ.get("GSASREC_MAX_WAIT_MS", "5")) / 1000.0
+MAX_BATCH_SIZE = int(os.environ.get("GSASREC_MAX_BATCH_SIZE", "1"))
+MAX_WAIT_SECONDS = float(os.environ.get("GSASREC_MAX_WAIT_MS", "1")) / 1000.0
 
 
 @dataclass
 class _BatchItem:
-    sequences: list           # list[list[int]] already padded to MAX_LENGTH
+    sequences: list  # list[list[int]] already padded to MAX_LENGTH
     future: "asyncio.Future"  # resolved with the per-item embeddings (np.ndarray) or an exception
 
 
@@ -122,10 +124,29 @@ class DynamicBatcher:
 
             await self._run_batch(batch_items)
 
+    def _sync_infer_and_serialize(self, merged_sequences: list, item_sizes: list[int]) -> list[bytes]:
+        """
+        It runs entirely in a separate worker thread (CPU/GPU bound).
+        It performs the forward pass and serializes the individual responses into raw JSON (bytes).
+        """
+        raw_result = self.infer_fn(merged_sequences)
+
+        serialized_results = []
+        offset = 0
+        for size in item_sizes:
+            user_slice = raw_result[offset: offset + size]
+
+            # heavyweight serialization of the numpy array into JSON bytes, using orjson for speed
+            json_bytes = orjson.dumps(
+                {"embeddings": user_slice},
+                option=orjson.OPT_SERIALIZE_NUMPY
+            )
+            serialized_results.append(json_bytes)
+            offset += size
+
+        return serialized_results
+
     async def _run_batch(self, batch_items: list):
-        # Flatten all per-request sequences into one big batch, remembering
-        # how many rows each request contributed so we can slice the result
-        # back apart afterwards.
         merged_sequences = []
         item_sizes = []
         for item in batch_items:
@@ -135,21 +156,22 @@ class DynamicBatcher:
         print(f"[{self.name}] batch: {len(batch_items)} requests merged -> {len(merged_sequences)} rows")
 
         try:
-            # The actual model call (sync, GPU-bound) runs off the event
-            # loop thread so other requests can keep being accepted/queued
-            # while this forward pass is in flight.
-            result = await asyncio.to_thread(self.infer_fn, merged_sequences)
+            # inference and serialization together in a separate thread to avoid blocking the event loop
+            serialized_payloads = await asyncio.to_thread(
+                self._sync_infer_and_serialize,
+                merged_sequences,
+                item_sizes
+            )
         except Exception as exc:
             for item in batch_items:
                 if not item.future.done():
                     item.future.set_exception(exc)
             return
 
-        offset = 0
-        for item, size in zip(batch_items, item_sizes):
+        for item, payload_bytes in zip(batch_items, serialized_payloads):
             if not item.future.done():
-                item.future.set_result(result[offset:offset + size])
-            offset += size
+                item.future.set_result(payload_bytes)
+
 
 SERVER_CONFIG = {
     "config_path": os.environ.get("GSASREC_CONFIG", "config_ml1m.py"),
@@ -297,6 +319,7 @@ async def health_check_root():
 async def health_check_endpoint():
     return {"status": "ok"}
 
+
 profiler_state = {"profiler": None, "active": False}
 
 
@@ -333,6 +356,7 @@ def inference_pytorch_sync(model, device, padded_batch):
             torch.cuda.synchronize()
     return seq_emb.cpu().numpy()
 
+
 @app.post("/get_embeddings/pytorch")
 async def get_embeddings_checkpoint(request: EmbeddingsRequest):
     if "pytorch_batcher" not in server_memory:
@@ -343,12 +367,10 @@ async def get_embeddings_checkpoint(request: EmbeddingsRequest):
     try:
         padded_batch = pad_batch(request.batch_sequences)
 
-        final_embeddings_array = await batcher.submit(padded_batch)
+        final_payload_bytes = await batcher.submit(padded_batch)
+
         return Response(
-            content=orjson.dumps(
-                {"embeddings": final_embeddings_array},
-                option=orjson.OPT_SERIALIZE_NUMPY
-            ),
+            content=final_payload_bytes,
             media_type="application/json"
         )
     except Exception as e:
@@ -463,7 +485,7 @@ if __name__ == "__main__":
     parser.add_argument("--onnx", type=str,
                         default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx")
     parser.add_argument("--candle", type=str, default="pre_trained/model.safetensors")
-    parser.add_argument("--workers", type=int, default=9, help="Number of uvicorn workers")
+    parser.add_argument("--workers", type=int, default=1, help="Number of uvicorn workers")
     parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cuda")
     parser.add_argument("--engine", type=str, choices=["pytorch", "onnx_python", "onnx_rust", "candle_rust", "all"],
                         default="pytorch")
