@@ -5,7 +5,7 @@ from utils import load_config, build_model, get_device
 
 
 # model wrapper to export directly the predictions
-class ModelWrapper(nn.Module):
+class ModelWrapperPredictions(nn.Module):
     def __init__(self, original_model):
         super().__init__()
         self.original_model = original_model
@@ -14,6 +14,16 @@ class ModelWrapper(nn.Module):
     def forward(self, input_seq, limit):
         indices, values = self.original_model.get_predictions(input_seq, limit)
         return indices, values
+
+# model wrapper to export directly the embeddings without the attentions
+class ModelWrapperEmbeddings(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, input_seq):
+        seq_emb, _ = self.model(input_seq)
+        return seq_emb
 
 
 # function written to export the model, isolated from the training
@@ -30,15 +40,15 @@ def export_model(saved_model_path="pre_trained/gsasrec-ml1m-step_86064-t_0.75-ne
     model.eval()
     seq_length = model_config.sequence_length
 
-    dummy_input = torch.randint(0, 1000, (1, seq_length), dtype=torch.long)
+    dummy_input = torch.randint(0, 1000, (2, seq_length), dtype=torch.long)
 
 
     # wrapped model
     if not embedded_results:
-        wrapped_model = ModelWrapper(model)
+        wrapped_model = ModelWrapperPredictions(model)
         wrapped_model.eval()
         dummy_k = torch.tensor([10], dtype=torch.long)
-        onnx_file_name = saved_model_path.replace(".pt", "_wrapped.onnx")
+        onnx_file_name = saved_model_path.replace(".pt", "_wrapped_predictions.onnx")
 
         torch.onnx.export(
             wrapped_model,
@@ -47,23 +57,37 @@ def export_model(saved_model_path="pre_trained/gsasrec-ml1m-step_86064-t_0.75-ne
             input_names=['input_seq', 'limit'],
             output_names=['indices', 'values'],
             dynamic_axes={
-                'input_seq': {0: 'batch_size'}
-            }
+                # Anche qui l'input deve accettare sequenze di lunghezza variabile
+                'input_seq': {0: 'batch_size', 1: 'sequence_length'},
+                # Gli output devono poter scalare in base al batch e al parametro 'limit'
+                'indices': {0: 'batch_size', 1: 'limit'},
+                'values': {0: 'batch_size', 1: 'limit'}
+            },
+            opset_version=14
         )
-    # original model
+    # wrapped model that returns only the embeddings without the attentions
     else:
-        model.eval()
-        onnx_file_name = saved_model_path.replace(".pt", ".onnx")
+        wrapped_model = ModelWrapperEmbeddings(model)
+        wrapped_model.eval()
+        onnx_file_name = saved_model_path.replace(".pt", "_wrapped_embeddings.onnx")
 
         torch.onnx.export(
-            model,
+            wrapped_model,
             (dummy_input,),
             onnx_file_name,
             input_names=['input_seq'],
-            output_names=['embedded', 'attentions'],
+            output_names=['embedded'],
             dynamic_axes={
-                'input_seq': {0: 'batch_size'}
-            }
+                'input_seq': {
+                    0: 'batch_size',
+                    1: 'sequence_length'
+                },
+                'embedded': {
+                    0: 'batch_size',
+                    1: 'sequence_length'
+                }
+            },
+            opset_version=14
         )
 
     print("Model exported with success.")

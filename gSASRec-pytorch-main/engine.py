@@ -46,6 +46,8 @@ def _latency_metrics(latencies: list) -> dict:
         'p90_ms':  float(np.percentile(arr, 90)),
         'p95_ms':  float(np.percentile(arr, 95)),
         'p99_ms':  float(np.percentile(arr, 99)),
+        'min': float(np.min(arr)),
+        'max': float(np.max(arr)),
     }
 
 
@@ -263,18 +265,26 @@ async def run_load(create_payload_fn, make_client_fn,
         'test_start_time': test_start_absolute,
     }
 
+    output_file_path = "benchmark_results.txt"
+
     if analysis_latencies:
         metrics = _latency_metrics(analysis_latencies)
         summary.update(metrics)
-        print(f'Done. Completed={completed}/{total_requests}, Failures={failures}, '
-              f'Achieved ~{achieved_total_rps:.1f} rps over {total_elapsed:.2f}s')
-        print(f'Latency (ms): mean={metrics["mean_ms"]:.1f} p50={metrics["p50_ms"]:.1f} '
-              f'p90={metrics["p90_ms"]:.1f} p95={metrics["p95_ms"]:.1f} p99={metrics["p99_ms"]:.1f}')
+
+        lines = [
+            f'Done. Completed={completed}/{total_requests}, Failures={failures}, Achieved ~{achieved_total_rps:.1f} rps over {total_elapsed:.2f}s\n',
+            f'Latency (ms): mean={metrics["mean_ms"]:.1f} p50={metrics["p50_ms"]:.1f} p90={metrics["p90_ms"]:.1f} p95={metrics["p95_ms"]:.1f} p99={metrics["p99_ms"]:.1f} min={metrics["min"]:.1f} max={metrics["max"]:.1f}\n'
+        ]
+
         if skip_first_n > 0:
-            print(f'   (computed on {len(analysis_latencies)}/{completed} requests, '
-                  f'first {skip_first_n} discarded)')
+            lines.append(f'   (computed on {len(analysis_latencies)}/{completed} requests, first {skip_first_n} discarded)\n')
     else:
-        print(f'No successful responses. Failures={failures}')
+        lines = [f'No successful responses. Failures={failures}\n']
+
+    print("".join(lines), end="")
+
+    with open(output_file_path, "a", encoding="utf-8") as f:
+        f.writelines(lines)
 
     return summary
 

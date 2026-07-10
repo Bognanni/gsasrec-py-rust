@@ -178,7 +178,7 @@ SERVER_CONFIG = {
     "checkpoint_path": os.environ.get("GSASREC_CHECKPOINT",
                                       "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt"),
     "onnx_model_path": os.environ.get("GSASREC_ONNX",
-                                      "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx"),
+                                      "pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962_wrapped_embeddings.onnx"),
     "safetensors_path": os.environ.get("GSASREC_CANDLE", "pre_trained/model.safetensors"),
     "device": os.environ.get("GSASREC_DEVICE", "cuda"),
     "engine": os.environ.get("GSASREC_ENGINE", "pytorch")
@@ -398,10 +398,7 @@ async def get_embeddings_onnx(request: EmbeddingsRequest):
         final_embeddings_array = await batcher.submit(padded_batch)
 
         return Response(
-            content=orjson.dumps(
-                {"embeddings": final_embeddings_array},
-                option=orjson.OPT_SERIALIZE_NUMPY
-            ),
+            content=final_embeddings_array,
             media_type="application/json"
         )
     except Exception as e:
@@ -483,7 +480,7 @@ if __name__ == "__main__":
     parser.add_argument('--checkpoint', type=str,
                         default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.pt")
     parser.add_argument("--onnx", type=str,
-                        default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962.onnx")
+                        default="pre_trained/gsasrec-ml1m-step_86064-t_0.75-negs_256-emb_128-dropout_0.5-metric_0.1974453226738962_wrapped_embeddings.onnx")
     parser.add_argument("--candle", type=str, default="pre_trained/model.safetensors")
     parser.add_argument("--workers", type=int, default=1, help="Number of uvicorn workers")
     parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cuda")
