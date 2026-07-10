@@ -175,9 +175,7 @@ impl CandleRecommender {
 
             let mut flattened_batch = Vec::with_capacity(batch_size * seq_len);
             for sequence in padded_batch {
-                for &item in &sequence {
-                    flattened_batch.push(item as u32);
-                }
+                flattened_batch.extend(sequence.into_iter().map(|item| item as u32));
             }
 
             let input_tensor = Tensor::from_vec(flattened_batch, (batch_size, seq_len), &self.device)

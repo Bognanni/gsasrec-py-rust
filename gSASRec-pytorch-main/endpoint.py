@@ -278,7 +278,7 @@ async def lifespan(app: FastAPI):
             print("GSASRec ONNX (Rust) model loaded!")
 
             def _onnx_rust_infer(merged_sequences):
-                return inference_onnx_rust(rust_session, merged_sequences, MAX_LENGTH)
+                return inference_onnx_rust(rust_session, merged_sequences)
 
             server_memory["onnx_rust_batcher"] = DynamicBatcher("onnx_rust", _onnx_rust_infer)
             server_memory["onnx_rust_batcher"].start()
@@ -290,7 +290,7 @@ async def lifespan(app: FastAPI):
             print("GSASRec Candle (Rust) model loaded!")
 
             def _candle_infer(merged_sequences):
-                return inference_candle(candle_session, merged_sequences, MAX_LENGTH)
+                return inference_candle(candle_session, merged_sequences)
 
             server_memory["candle_rust_batcher"] = DynamicBatcher("candle_rust", _candle_infer)
             server_memory["candle_rust_batcher"].start()
@@ -405,7 +405,7 @@ async def get_embeddings_onnx(request: EmbeddingsRequest):
         raise HTTPException(status_code=400, detail=f"Error ONNX: {str(e)}")
 
 
-def inference_onnx_rust(rust_model, padded_batch, max_length):
+def inference_onnx_rust(rust_model, padded_batch):
     flat_embeddings = rust_model.get_embeddings(padded_batch)
 
     batch_size = len(padded_batch)
@@ -427,17 +427,14 @@ async def get_embeddings_onnx_rust(request: EmbeddingsRequest):
         reshaped_batch = await batcher.submit(padded_batch)
 
         return Response(
-            content=orjson.dumps(
-                {"embeddings": reshaped_batch},
-                option=orjson.OPT_SERIALIZE_NUMPY
-            ),
+            content=reshaped_batch,
             media_type="application/json"
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error Rust ONNX model: {str(e)}")
 
 
-def inference_candle(candle_model, padded_batch, max_length):
+def inference_candle(candle_model, padded_batch):
     flat_embeddings = candle_model.get_embeddings(padded_batch)
 
     batch_size = len(padded_batch)
@@ -459,10 +456,7 @@ async def get_embeddings_candle_rust(request: EmbeddingsRequest):
         reshaped_batch = await batcher.submit(padded_batch)
 
         return Response(
-            content=orjson.dumps(
-                {"embeddings": reshaped_batch},
-                option=orjson.OPT_SERIALIZE_NUMPY
-            ),
+            content=reshaped_batch,
             media_type="application/json"
         )
     except Exception as e:
