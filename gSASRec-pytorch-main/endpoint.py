@@ -43,11 +43,11 @@ def pad_batch(sequences):
 # MAX_BATCH_SIZE: hard cap on how many requests get merged into a single
 #   forward pass. Keep it a multiple of typical per-request batch sizes
 #   (e.g. 16) so GPU utilization stays high without growing tensors unbounded.
-# MAX_WAIT_SECONDS: how long the batcher waits for more requests to arrive
+# MAX_WAIT_TIME: how long the batcher waits for more requests to arrive
 #   before firing whatever it has collected so far. This bounds the extra
 #   latency a single request can incur waiting to be batched with others.
 MAX_BATCH_SIZE = int(os.environ.get("GSASREC_MAX_BATCH_SIZE", "1"))
-MAX_WAIT_SECONDS = float(os.environ.get("GSASREC_MAX_WAIT_MS", "1")) / 1000.0
+MAX_WAIT_TIME = float(os.environ.get("GSASREC_MAX_WAIT_MS", "1")) / 1000.0
 
 
 @dataclass
@@ -72,11 +72,11 @@ class DynamicBatcher:
 
     def __init__(self, name: str, infer_fn: Callable[[list], Any],
                  max_batch_size: int = MAX_BATCH_SIZE,
-                 max_wait_seconds: float = MAX_WAIT_SECONDS):
+                 MAX_WAIT_TIME: float = MAX_WAIT_TIME):
         self.name = name
         self.infer_fn = infer_fn
         self.max_batch_size = max_batch_size
-        self.max_wait_seconds = max_wait_seconds
+        self.MAX_WAIT_TIME = MAX_WAIT_TIME
         self.queue: asyncio.Queue[_BatchItem] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
 
@@ -107,7 +107,7 @@ class DynamicBatcher:
                 return
 
             batch_items = [first_item]
-            deadline = asyncio.get_running_loop().time() + self.max_wait_seconds
+            deadline = asyncio.get_running_loop().time() + self.MAX_WAIT_TIME
 
             # Keep absorbing items already sitting in the queue (no wait),
             # then absorb newly arriving ones until the deadline or the

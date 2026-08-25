@@ -1,6 +1,6 @@
 // Commands to start the server based on build context:
 // 1. CPU-only build (standard):
-//    RUSTFLAGS="-C target-cpu=native" cargo run --release --bin server -- --device cpu --engine onnx
+//    RUSTFLAGS="-C target-cpu=native" cargo run --release --features mkl --bin server -- --device cpu --engine onnx
 //
 // 2. GPU-enabled build (when enabling --features cuda):
 //    RUSTFLAGS="-C target-cpu=native" cargo run --release --bin server --features cuda -- --device cuda --engine onnx
@@ -52,7 +52,7 @@ struct Args {
 impl Args {
     fn parse() -> Self {
         let raw: Vec<String> = std::env::args().collect();
-        let mut use_cuda = false; // Default su CPU come richiesto
+        let mut use_cuda = false;
         let mut engine = EngineType::Onnx;
 
         let mut i = 1;
